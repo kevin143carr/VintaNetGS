@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Build directories
+build/
+dist/
+out/
+
+# ORCA/C generated files
+*.root
+*.sym
+*.o
+*.obj
+*.obj.a
+*.lst
+*.map
+
+# Apple II disk images
+*.hdv
+*.2mg
+*.po
+*.dsk
+
+# Generated executables
+/vintanetgs
+/VINTANETGS

@@ -1,0 +1,10 @@
+#ifndef VN_VERSION_H
+#define VN_VERSION_H
+
+#define VN_APP_NAME "VINTANETGS"
+#define VN_VERSION_MAJOR 0
+#define VN_VERSION_MINOR 0
+#define VN_VERSION_PATCH 1
+#define VN_VERSION_TEXT "0.0.1"
+
+#endif
