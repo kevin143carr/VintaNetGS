@@ -120,12 +120,15 @@ static void vn_app_run_serial_diagnostics(const VnConfig *config,
     TextUiKeyEvent event;
     static VnSerialStats displayed_stats;
     VnSerialStatus displayed_status;
+    int probe_view;
     unsigned char value;
 
     displayed_stats = *vn_serial_stats();
     displayed_status = vn_serial_status();
+    probe_view = 0;
     vn_ui_draw_serial_diagnostics(config->baud, serial_configured,
-                                  VN_SERIAL_BACKEND_ENABLED);
+                                  VN_SERIAL_BACKEND_ENABLED,
+                                  probe_view, 0);
 
     while (1)
     {
@@ -142,13 +145,46 @@ static void vn_app_run_serial_diagnostics(const VnConfig *config,
             displayed_status = vn_serial_status();
             vn_ui_draw_serial_diagnostics(config->baud,
                                           serial_configured,
-                                          VN_SERIAL_BACKEND_ENABLED);
+                                          VN_SERIAL_BACKEND_ENABLED,
+                                          probe_view, 0);
         }
 
-        if (textui_poll_key_event(&event) &&
-            (event.key == TEXTUI_KEY_ESCAPE ||
-             event.ch == 'Q' || event.ch == 'q'))
-            break;
+        if (textui_poll_key_event(&event))
+        {
+            if (event.key == TEXTUI_KEY_ESCAPE ||
+                event.ch == 'Q' || event.ch == 'q')
+                break;
+            if (event.ch == 'V' || event.ch == 'v')
+            {
+                probe_view = !probe_view;
+                vn_ui_draw_serial_diagnostics(config->baud,
+                                              serial_configured,
+                                              VN_SERIAL_BACKEND_ENABLED,
+                                              probe_view, 0);
+            }
+            else if (event.ch == 'R' || event.ch == 'r')
+            {
+                vn_serial_probe_reset();
+                probe_view = 1;
+                vn_ui_draw_serial_diagnostics(config->baud,
+                                              serial_configured,
+                                              VN_SERIAL_BACKEND_ENABLED,
+                                              probe_view, 0);
+            }
+            else if (event.ch == 'N' || event.ch == 'n')
+            {
+                probe_view = 1;
+                vn_ui_draw_serial_diagnostics(config->baud,
+                                              serial_configured,
+                                              VN_SERIAL_BACKEND_ENABLED,
+                                              probe_view, 1);
+                vn_serial_probe_next();
+                vn_ui_draw_serial_diagnostics(config->baud,
+                                              serial_configured,
+                                              VN_SERIAL_BACKEND_ENABLED,
+                                              probe_view, 0);
+            }
+        }
     }
 }
 

@@ -72,6 +72,83 @@ static void vn_ui_format_history(char *text,
     text[position] = '\0';
 }
 
+static int vn_ui_probe_has_value(VnSerialProbeOperation operation)
+{
+    return operation == VN_SERIAL_PROBE_WRITE ||
+           operation == VN_SERIAL_PROBE_STATUS_RX ||
+           operation == VN_SERIAL_PROBE_STATUS_TX;
+}
+
+static void vn_ui_draw_probe(int in_flight)
+{
+    const VnSerialProbeStatus *probe;
+    VnSerialProbeOperation operation;
+    unsigned int value;
+    static char text[38];
+
+    probe = vn_serial_probe_status();
+    if (in_flight)
+    {
+        operation = probe->next_operation;
+        value = probe->next_value;
+        sprintf(text, "PROBE: %02u/%02u IN FLIGHT",
+                probe->next_step, probe->total_steps);
+        textui_write_field(3, 15, 34, text, TEXTUI_INVERSE);
+        sprintf(text, "CALL:  %s",
+                vn_serial_probe_operation_text(operation));
+        textui_write_field(3, 16, 34, text, TEXTUI_NORMAL);
+        if (vn_ui_probe_has_value(operation))
+            sprintf(text, "VALUE: $%02X", value & 0xFFU);
+        else
+            sprintf(text, "VALUE: --");
+        textui_write_field(3, 17, 34, text, TEXTUI_NORMAL);
+        textui_write_field(3, 19, 34, "WAITING FOR RETURN", TEXTUI_INVERSE);
+        textui_write_field(3, 21, 34, "DO NOT START ANOTHER STEP", TEXTUI_NORMAL);
+        return;
+    }
+
+    if (probe->outcome == VN_SERIAL_PROBE_READY)
+    {
+        sprintf(text, "PROBE: READY  NEXT %02u/%02u",
+                probe->next_step, probe->total_steps);
+        textui_write_field(3, 15, 34, text, TEXTUI_NORMAL);
+        sprintf(text, "CALL:  %s",
+                vn_serial_probe_operation_text(probe->next_operation));
+        textui_write_field(3, 16, 34, text, TEXTUI_NORMAL);
+        textui_write_field(3, 18, 34, "N RUNS ONE CHECKPOINT", TEXTUI_NORMAL);
+        return;
+    }
+
+    if (probe->outcome == VN_SERIAL_PROBE_COMPLETE)
+        sprintf(text, "PROBE: COMPLETE %02u/%02u",
+                probe->total_steps, probe->total_steps);
+    else
+        sprintf(text, "LAST:  %02u/%02u %s",
+                probe->last_step, probe->total_steps,
+                probe->outcome == VN_SERIAL_PROBE_PASSED ? "PASS" : "FAIL");
+    textui_write_field(3, 15, 34, text,
+                       probe->outcome == VN_SERIAL_PROBE_FAILED ?
+                       TEXTUI_INVERSE : TEXTUI_NORMAL);
+    sprintf(text, "CALL:  %s",
+            vn_serial_probe_operation_text(probe->last_operation));
+    textui_write_field(3, 16, 34, text, TEXTUI_NORMAL);
+    if (vn_ui_probe_has_value(probe->last_operation))
+        sprintf(text, "VALUE: $%02X", probe->last_value & 0xFFU);
+    else
+        sprintf(text, "VALUE: --");
+    textui_write_field(3, 17, 34, text, TEXTUI_NORMAL);
+    sprintf(text, "A:%04X X:%04X Y:%04X", probe->a, probe->x, probe->y);
+    textui_write_field(3, 18, 34, text, TEXTUI_NORMAL);
+    sprintf(text, "C:%u ARB:%04X", probe->carry, probe->arbiter_error);
+    textui_write_field(3, 19, 34, text, TEXTUI_NORMAL);
+    if (probe->next_step > probe->total_steps)
+        sprintf(text, "NEXT: COMPLETE");
+    else
+        sprintf(text, "NEXT: %02u %s", probe->next_step,
+                vn_serial_probe_operation_text(probe->next_operation));
+    textui_write_field(3, 21, 34, text, TEXTUI_NORMAL);
+}
+
 void vn_ui_draw_shell(const VnConfig *config,
                       const VnConfigStatus *status,
                       int serial_configured,
@@ -128,7 +205,9 @@ void vn_ui_draw_shell(const VnConfig *config,
 
 void vn_ui_draw_serial_diagnostics(long baud,
                                    int serial_configured,
-                                   int serial_backend_enabled)
+                                   int serial_backend_enabled,
+                                   int probe_view,
+                                   int probe_in_flight)
 {
     const VnSerialStats *stats;
     static unsigned char rx_history[VN_SERIAL_HISTORY_SIZE];
@@ -144,7 +223,9 @@ void vn_ui_draw_serial_diagnostics(long baud,
     textui_clear();
     textui_write_field(0, 0, 40, "SERIAL DIAGNOSTICS", TEXTUI_INVERSE);
     textui_draw_box(0, 1, 40, 22);
-    textui_write_field(0, 23, 40, "ESC: RETURN", TEXTUI_INVERSE);
+    textui_write_field(0, 23, 40,
+                       "N:NEXT R:RESET V:VIEW ESC:RETURN",
+                       TEXTUI_INVERSE);
 
     textui_write_field(3, 3, 34, "PORT:   PRINTER / SLOT 1", TEXTUI_NORMAL);
     sprintf(text, "FORMAT: %ld 8N1", baud);
@@ -176,15 +257,20 @@ void vn_ui_draw_serial_diagnostics(long baud,
                 (unsigned int)stats->last_error & 0xFFU);
     textui_write_field(3, 13, 34, text, TEXTUI_NORMAL);
 
-    textui_write_field(3, 15, 34, "RECENT RX:", TEXTUI_NORMAL);
-    vn_ui_format_history(text, rx_history, rx_count);
-    textui_write_field(3, 16, 34, text, TEXTUI_NORMAL);
-    textui_write_field(3, 18, 34, "RECENT TX:", TEXTUI_NORMAL);
-    vn_ui_format_history(text, tx_history, tx_count);
-    textui_write_field(3, 19, 34, text, TEXTUI_NORMAL);
+    if (probe_view)
+        vn_ui_draw_probe(probe_in_flight);
+    else
+    {
+        textui_write_field(3, 15, 34, "RECENT RX:", TEXTUI_NORMAL);
+        vn_ui_format_history(text, rx_history, rx_count);
+        textui_write_field(3, 16, 34, text, TEXTUI_NORMAL);
+        textui_write_field(3, 18, 34, "RECENT TX:", TEXTUI_NORMAL);
+        vn_ui_format_history(text, tx_history, tx_count);
+        textui_write_field(3, 19, 34, text, TEXTUI_NORMAL);
 
-    sprintf(text, "HIGH WATER: RX %04u TX %04u",
-            stats->rx_high_water, stats->tx_high_water);
-    textui_write_field(3, 21, 34, text, TEXTUI_NORMAL);
+        sprintf(text, "HIGH WATER: RX %04u TX %04u",
+                stats->rx_high_water, stats->tx_high_water);
+        textui_write_field(3, 21, 34, text, TEXTUI_NORMAL);
+    }
     textui_present();
 }

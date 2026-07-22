@@ -82,11 +82,36 @@ called on close to return the firmware to its initialized state.
 ## Testing
 
 The `T` command runs the deterministic ring-buffer wrap/full test before
-reporting the existing protocol test result.  Clemens can verify startup,
-configuration, UI, queue stability, and application polling.  Publicly
-documented Clemens releases do not emulate SCC serial communications, so
-actual printer-port TX/RX must be validated on a real Apple IIgs or a
-serial-capable emulator.
+reporting the existing protocol test result.  The automatic firmware backend
+is currently disabled.  Startup, configuration save, normal polling, and
+shutdown do not call the serial firmware.
+
+The serial diagnostics screen provides a manual 37-step firmware probe.  `N`
+runs exactly one checkpoint, `R` resets the sequence without calling firmware,
+and `V` switches between counters and probe results.  The sequence tests the
+native assembly return, emulation-mode return, Slot Arbiter, `PINIT`, each of
+the 31 setup `PWRITE` bytes, RX `PSTATUS`, and TX `PSTATUS`.  The screen is
+presented with `IN FLIGHT` before each call so a crash identifies the exact
+operation.  Errors hold the current step instead of advancing.
+
+For GSplus 1.38 testing, mount the workflow's `System601HD.hdv`, set slot 1 to
+the printer port in the IIgs Control Panel, and disable AppleTalk.  In the
+GSplus F4 serial configuration, set slot 1 / port 0 to incoming TCP port 6501
+and select full 8-bit data.  Save the emulator configuration and cold restart
+before probing.
+
+The observed GSplus 1.38 run passes the native return and emulation return
+checkpoints.  It then beeps and remains `IN FLIGHT` at the first Slot Arbiter
+invocation (`JSL $01FCBC`).  No `PINIT`, `PWRITE`, `PSTATUS`, or SCC operation
+has therefore been reached in GSplus.  The shim clears decimal mode as required
+by Apple IIgs Technical Note #69; this correction did not change the GSplus
+stopping point.  Do not treat this emulator result as successful firmware or
+serial validation.
+
+Clemens can verify startup, configuration, UI, queue stability, and
+application polling, but publicly documented Clemens releases do not emulate
+SCC serial communications.  Actual printer-port TX/RX must be validated on a
+real Apple IIgs or a serial-capable emulator.
 
 For hardware testing, connect a binary-safe peer, open the serial
 diagnostic screen, and verify receive counts and recent bytes with patterns

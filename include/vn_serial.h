@@ -4,6 +4,7 @@
 #define VN_SERIAL_RX_BUFFER_SIZE 1024U
 #define VN_SERIAL_TX_BUFFER_SIZE 1024U
 #define VN_SERIAL_HISTORY_SIZE 8U
+#define VN_SERIAL_PROBE_TOTAL_STEPS 37U
 
 typedef enum VnSerialStatus {
     VN_SERIAL_STATUS_CLOSED = 0,
@@ -26,6 +27,41 @@ typedef struct VnSerialStats {
     int last_error;
 } VnSerialStats;
 
+typedef enum VnSerialProbeOperation {
+    VN_SERIAL_PROBE_NONE = 0,
+    VN_SERIAL_PROBE_NATIVE,
+    VN_SERIAL_PROBE_EMULATION,
+    VN_SERIAL_PROBE_ARBITER,
+    VN_SERIAL_PROBE_INIT,
+    VN_SERIAL_PROBE_WRITE,
+    VN_SERIAL_PROBE_STATUS_RX,
+    VN_SERIAL_PROBE_STATUS_TX
+} VnSerialProbeOperation;
+
+typedef enum VnSerialProbeOutcome {
+    VN_SERIAL_PROBE_READY = 0,
+    VN_SERIAL_PROBE_IN_FLIGHT,
+    VN_SERIAL_PROBE_PASSED,
+    VN_SERIAL_PROBE_FAILED,
+    VN_SERIAL_PROBE_COMPLETE
+} VnSerialProbeOutcome;
+
+typedef struct VnSerialProbeStatus {
+    unsigned int next_step;
+    unsigned int last_step;
+    unsigned int total_steps;
+    VnSerialProbeOperation next_operation;
+    VnSerialProbeOperation last_operation;
+    unsigned int next_value;
+    unsigned int last_value;
+    unsigned int a;
+    unsigned int x;
+    unsigned int y;
+    unsigned int carry;
+    unsigned int arbiter_error;
+    VnSerialProbeOutcome outcome;
+} VnSerialProbeStatus;
+
 int vn_serial_open(int slot, long baud);
 void vn_serial_close(void);
 void vn_serial_poll(void);
@@ -44,5 +80,10 @@ unsigned int vn_serial_recent_tx(unsigned char *data,
                                  unsigned int capacity);
 
 int vn_serial_ring_self_test(void);
+
+void vn_serial_probe_reset(void);
+int vn_serial_probe_next(void);
+const VnSerialProbeStatus *vn_serial_probe_status(void);
+const char *vn_serial_probe_operation_text(VnSerialProbeOperation operation);
 
 #endif

@@ -50,6 +50,24 @@ whether output can be accepted.  The transport calls `PREAD` or `PWRITE`
 only after the corresponding ready result.  Each poll has fixed RX and TX
 work budgets and therefore returns promptly even under continuous traffic.
 
+## Controlled firmware probe
+
+Normal serial activation is compile-time disabled while firmware invocation is
+validated.  The serial diagnostics screen exposes a manual 37-step sequence:
+
+1. Native assembly entry and return
+2. Native-to-emulation-to-native transition
+3. Slot Arbiter request and restore
+4. One `PINIT`
+5. Thirty-one individual `PWRITE` calls for the existing setup commands
+6. One input `PSTATUS` and one output `PSTATUS`
+
+Every `N` keypress presents an `IN FLIGHT` marker before making one call.  A
+successful call advances one step; an arbiter or firmware error remains on the
+same step.  `R` resets only the diagnostic sequence and invokes no firmware.
+The probe does not call `PREAD`, send payload data, open the application
+transport, or enable continuous status polling.
+
 ## Emulator boundary
 
 Clemens is suitable for the GS/OS build/import/launch workflow and UI tests,
@@ -58,6 +76,19 @@ communication.  Stable zero counters in Clemens show only that the polling
 path and diagnostics remain idle without a backend.  They do not prove
 electrical signaling, cabling, firmware interrupts, or byte-accurate
 printer-port communication.
+
+GSplus 1.38 includes SCC emulation and maps slot 1 to serial port 0.  The
+initial probe setup uses incoming TCP port 6501 with full 8-bit data, while the
+IIgs Control Panel remains set to Printer Port with AppleTalk disabled.
+
+The current GSplus probe result is deliberately limited.  Native entry/return
+and native-to-emulation-to-native return pass with zeroed result registers.
+The next checkpoint beeps and remains `IN FLIGHT` at the first Slot Arbiter
+call (`JSL $01FCBC`).  This occurs before `PINIT`, `PWRITE`, `PSTATUS`, or SCC
+serial activity.  Adding `CLD` at both native 16-bit entry points satisfies the
+Technical Note #69 decimal-mode requirement but did not change this GSplus
+result.  A real IIgs test is required to determine whether the stopping point
+is specific to GSplus or remains a shim problem.
 
 Real hardware or a serial-capable emulator must verify:
 
@@ -68,4 +99,4 @@ Real hardware or a serial-capable emulator must verify:
 - parity, framing, and overrun reporting under induced faults
 - sustained queue behavior and overflow counters
 
-No physical serial success is claimed by the Clemens workflow.
+No physical serial success is claimed by either emulator workflow.

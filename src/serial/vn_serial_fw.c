@@ -4,6 +4,9 @@
 #define VN_FW_OP_READ 1U
 #define VN_FW_OP_WRITE 2U
 #define VN_FW_OP_STATUS 3U
+#define VN_FW_OP_PROBE_NATIVE 4U
+#define VN_FW_OP_PROBE_EMULATION 5U
+#define VN_FW_OP_PROBE_ARBITER 6U
 
 #define VN_FW_SLOT_ONE_X 0x00C1U
 #define VN_FW_SLOT_ONE_Y 0x0010U
@@ -73,4 +76,19 @@ void vn_serial_fw_status(unsigned char request,
 {
     vn_serial_fw_call(VN_FW_OP_STATUS, (unsigned int)request,
                       VN_FW_SLOT_ONE_X, VN_FW_SLOT_ONE_Y, result);
+}
+
+void vn_serial_fw_probe_native(VnSerialFirmwareResult *result)
+{
+    vn_serial_fw_call(VN_FW_OP_PROBE_NATIVE, 0U, 0U, 0U, result);
+}
+
+void vn_serial_fw_probe_emulation(VnSerialFirmwareResult *result)
+{
+    vn_serial_fw_call(VN_FW_OP_PROBE_EMULATION, 0U, 0U, 0U, result);
+}
+
+void vn_serial_fw_probe_arbiter(VnSerialFirmwareResult *result)
+{
+    vn_serial_fw_call(VN_FW_OP_PROBE_ARBITER, 0U, 0U, 0U, result);
 }

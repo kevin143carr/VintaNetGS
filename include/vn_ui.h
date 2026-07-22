@@ -9,6 +9,8 @@ void vn_ui_draw_shell(const VnConfig *config,
                       int serial_backend_enabled);
 void vn_ui_draw_serial_diagnostics(long baud,
                                    int serial_configured,
-                                   int serial_backend_enabled);
+                                   int serial_backend_enabled,
+                                   int probe_view,
+                                   int probe_in_flight);
 
 #endif

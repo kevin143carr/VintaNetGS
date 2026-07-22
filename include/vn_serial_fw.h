@@ -15,5 +15,8 @@ void vn_serial_fw_write(unsigned char value,
                         VnSerialFirmwareResult *result);
 void vn_serial_fw_status(unsigned char request,
                          VnSerialFirmwareResult *result);
+void vn_serial_fw_probe_native(VnSerialFirmwareResult *result);
+void vn_serial_fw_probe_emulation(VnSerialFirmwareResult *result);
+void vn_serial_fw_probe_arbiter(VnSerialFirmwareResult *result);
 
 #endif

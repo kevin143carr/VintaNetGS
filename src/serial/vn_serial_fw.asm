@@ -21,6 +21,7 @@ vn_serial_fw_invoke entry
          php
          sei
          rep   #$30
+         cld                           required by Slot Arbiter contract
          pha
          phx
          phy
@@ -42,14 +43,30 @@ vn_serial_fw_invoke entry
          sta   >vn_fw_y_out
          sta   >vn_fw_carry_out
 
+         lda   >vn_fw_operation
+         cmp   #4                      native entry/return probe
+         bne   notNativeProbe
+         brl   restoreState
+notNativeProbe anop
+         cmp   #5                      emulation transition probe
+         beq   prepareEmulation
+
          lda   #1                      request internal slot 1
          jsl   $01FCBC                 GS/OS Slot Arbiter
          txa
          sta   >vn_fw_saved_slots
-         bcs   arbiterFailed
+         bcc   arbiterSucceeded
+         brl   arbiterFailed
+arbiterSucceeded anop
          lda   #0                      arbiter leaves D undefined
          tcd
 
+         lda   >vn_fw_operation
+         cmp   #6                      slot arbiter probe
+         bne   prepareEmulation
+         brl   restoreSlotState
+
+prepareEmulation anop
          lda   #$01FF                  firmware uses emulation stack
          tcs
          sec
@@ -58,6 +75,9 @@ vn_serial_fw_invoke entry
          longi off
 
          lda   >vn_fw_operation
+         cmp   #5
+         beq   leaveEmulation
+         cmp   #0
          beq   selectInit
          cmp   #1
          beq   selectRead
@@ -93,13 +113,20 @@ firmwareCall jsr $C100                 low byte patched from entry table
          and   #1
          sta   >vn_fw_carry_out
 
+leaveEmulation anop
          sei
          clc
          xce
          rep   #$30
+         cld                           firmware may not preserve decimal mode
          longa on
          longi on
 
+         lda   >vn_fw_operation
+         cmp   #5
+         beq   restoreState
+
+restoreSlotState anop
          lda   >vn_fw_saved_slots
          tax
          lda   #$0300                  restore prior slot configuration

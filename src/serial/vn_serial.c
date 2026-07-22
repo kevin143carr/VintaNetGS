@@ -39,6 +39,8 @@ static unsigned int vn_serial_tx_history_count;
 static unsigned int vn_serial_tx_history_next;
 static unsigned int vn_serial_escape_index;
 static char vn_serial_status_buffer[32];
+static VnSerialProbeStatus vn_serial_probe_current;
+static int vn_serial_probe_initialized;
 
 static const unsigned char vn_serial_escape_bytes[] = {
     VN_FW_COMMAND,
@@ -47,6 +49,59 @@ static const unsigned char vn_serial_escape_bytes[] = {
     VN_FW_ALT_COMMAND,
     VN_FW_COMMAND
 };
+
+static const unsigned char vn_serial_probe_write_bytes[] = {
+    0x09U, 0x31U, 0x30U, 0x42U,
+    0x09U, 0x30U, 0x44U,
+    0x09U, 0x30U, 0x50U,
+    0x09U, 0x43U, 0x44U,
+    0x09U, 0x58U, 0x44U,
+    0x09U, 0x46U, 0x44U,
+    0x09U, 0x4CU, 0x44U,
+    0x09U, 0x45U, 0x44U,
+    0x09U, 0x4DU, 0x44U,
+    0x09U, 0x42U, 0x45U
+};
+
+static void vn_serial_probe_describe(unsigned int step,
+                                     VnSerialProbeOperation *operation,
+                                     unsigned int *value)
+{
+    unsigned int write_index;
+
+    *operation = VN_SERIAL_PROBE_NONE;
+    *value = 0;
+    if (step == 1U)
+        *operation = VN_SERIAL_PROBE_NATIVE;
+    else if (step == 2U)
+        *operation = VN_SERIAL_PROBE_EMULATION;
+    else if (step == 3U)
+        *operation = VN_SERIAL_PROBE_ARBITER;
+    else if (step == 4U)
+        *operation = VN_SERIAL_PROBE_INIT;
+    else if (step >= 5U && step <= 35U)
+    {
+        write_index = step - 5U;
+        *operation = VN_SERIAL_PROBE_WRITE;
+        *value = vn_serial_probe_write_bytes[write_index];
+    }
+    else if (step == 36U)
+    {
+        *operation = VN_SERIAL_PROBE_STATUS_RX;
+        *value = 1U;
+    }
+    else if (step == 37U)
+    {
+        *operation = VN_SERIAL_PROBE_STATUS_TX;
+        *value = 0U;
+    }
+}
+
+static void vn_serial_probe_ensure_initialized(void)
+{
+    if (!vn_serial_probe_initialized)
+        vn_serial_probe_reset();
+}
 
 static void vn_serial_ring_init(VnSerialRing *ring,
                                 unsigned char *storage,
@@ -512,4 +567,97 @@ int vn_serial_ring_self_test(void)
             return 0;
     }
     return ring.count == 0 && ring.high_water == 17U;
+}
+
+void vn_serial_probe_reset(void)
+{
+    memset(&vn_serial_probe_current, 0, sizeof(vn_serial_probe_current));
+    vn_serial_probe_current.next_step = 1U;
+    vn_serial_probe_current.total_steps = VN_SERIAL_PROBE_TOTAL_STEPS;
+    vn_serial_probe_current.outcome = VN_SERIAL_PROBE_READY;
+    vn_serial_probe_describe(vn_serial_probe_current.next_step,
+                             &vn_serial_probe_current.next_operation,
+                             &vn_serial_probe_current.next_value);
+    vn_serial_probe_initialized = 1;
+}
+
+int vn_serial_probe_next(void)
+{
+    VnSerialFirmwareResult result;
+    VnSerialProbeOperation operation;
+    unsigned int value;
+
+    vn_serial_probe_ensure_initialized();
+    if (vn_serial_probe_current.next_step > VN_SERIAL_PROBE_TOTAL_STEPS)
+    {
+        vn_serial_probe_current.outcome = VN_SERIAL_PROBE_COMPLETE;
+        return 0;
+    }
+
+    operation = vn_serial_probe_current.next_operation;
+    value = vn_serial_probe_current.next_value;
+    vn_serial_probe_current.last_step = vn_serial_probe_current.next_step;
+    vn_serial_probe_current.last_operation = operation;
+    vn_serial_probe_current.last_value = value;
+    vn_serial_probe_current.outcome = VN_SERIAL_PROBE_IN_FLIGHT;
+    memset(&result, 0, sizeof(result));
+
+    if (operation == VN_SERIAL_PROBE_NATIVE)
+        vn_serial_fw_probe_native(&result);
+    else if (operation == VN_SERIAL_PROBE_EMULATION)
+        vn_serial_fw_probe_emulation(&result);
+    else if (operation == VN_SERIAL_PROBE_ARBITER)
+        vn_serial_fw_probe_arbiter(&result);
+    else if (operation == VN_SERIAL_PROBE_INIT)
+        vn_serial_fw_init(&result);
+    else if (operation == VN_SERIAL_PROBE_WRITE)
+        vn_serial_fw_write((unsigned char)value, &result);
+    else if (operation == VN_SERIAL_PROBE_STATUS_RX)
+        vn_serial_fw_status(1U, &result);
+    else if (operation == VN_SERIAL_PROBE_STATUS_TX)
+        vn_serial_fw_status(0U, &result);
+
+    vn_serial_probe_current.a = result.a;
+    vn_serial_probe_current.x = result.x;
+    vn_serial_probe_current.y = result.y;
+    vn_serial_probe_current.carry = result.carry;
+    vn_serial_probe_current.arbiter_error = result.arbiter_error;
+
+    if (result.arbiter_error != 0 || result.x != 0)
+    {
+        vn_serial_probe_current.outcome = VN_SERIAL_PROBE_FAILED;
+        return -1;
+    }
+
+    vn_serial_probe_current.outcome = VN_SERIAL_PROBE_PASSED;
+    vn_serial_probe_current.next_step++;
+    vn_serial_probe_describe(vn_serial_probe_current.next_step,
+                             &vn_serial_probe_current.next_operation,
+                             &vn_serial_probe_current.next_value);
+    return 1;
+}
+
+const VnSerialProbeStatus *vn_serial_probe_status(void)
+{
+    vn_serial_probe_ensure_initialized();
+    return &vn_serial_probe_current;
+}
+
+const char *vn_serial_probe_operation_text(VnSerialProbeOperation operation)
+{
+    if (operation == VN_SERIAL_PROBE_NATIVE)
+        return "NATIVE RETURN";
+    if (operation == VN_SERIAL_PROBE_EMULATION)
+        return "EMU RETURN";
+    if (operation == VN_SERIAL_PROBE_ARBITER)
+        return "SLOT ARBITER";
+    if (operation == VN_SERIAL_PROBE_INIT)
+        return "PINIT";
+    if (operation == VN_SERIAL_PROBE_WRITE)
+        return "PWRITE";
+    if (operation == VN_SERIAL_PROBE_STATUS_RX)
+        return "PSTATUS RX";
+    if (operation == VN_SERIAL_PROBE_STATUS_TX)
+        return "PSTATUS TX";
+    return "COMPLETE";
 }
