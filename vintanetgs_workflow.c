@@ -25,6 +25,11 @@ segment "VN_CONFIG";
 segment "VN_UI";
 #include "src/ui/vn_ui.c"
 #include "src/ui/vn_config_ui.c"
+segment "VN_SERIAL";
+#include "src/serial/vn_serial_fw.c"
+#include "src/serial/vn_serial.c"
 segment "VN_APP";
 #include "src/vn_app.c"
 #include "src/vn_main.c"
+
+#append "src/serial/vn_serial_fw.asm"
