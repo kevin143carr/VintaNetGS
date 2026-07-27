@@ -9,6 +9,6 @@ Phase 1 validation is performed through the shared Apple IIgs workflow:
 ./build.sh verify
 ```
 
-Interactive rendering and keyboard behavior must eventually be verified in Clemens. A successful `iix` launch or build is not proof that direct hardware text rendering behaves correctly in the emulator.
+Interactive rendering, keyboard behavior, and serial probing must be verified in GSplus or on real hardware. A successful `iix` launch or build is not proof that direct hardware text rendering or serial firmware behavior works in the emulator.
 
 Configuration parser fixtures live in `tests/config/`. They document accepted and rejected file shapes for the current fixed-size parser. There is not yet an automated fixture runner inside ORCA/C.

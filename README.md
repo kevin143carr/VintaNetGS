@@ -6,7 +6,10 @@ VintaNetGS is an Apple IIgs ORCA/C porting project for the VintaNet serial-netwo
 
 The project currently contains only Phase 1: development structure and a minimal TEXTUIGS-based UI shell. It initializes 40-column text mode, draws a deterministic status screen, waits for Escape or `Q`, restores the display state, and exits.
 
-Configuration loading is now present. Serial transport, packet communications, discovery, INFO handling, routed commands, remote launch, and remote-control behavior are deliberately absent.
+Configuration loading is now present. Raw serial transport is under manual
+diagnostic validation only. Packet communications, discovery, INFO handling,
+routed commands, remote launch, and remote-control behavior are deliberately
+absent.
 
 ## Dependencies
 
@@ -30,7 +33,7 @@ Build the local S16 executable:
 ./build.sh build
 ```
 
-Other supported wrapper stages are forwarded to the shared Devel_Ops workflow:
+Other supported wrapper stages include:
 
 ```sh
 ./build.sh run-iix
@@ -39,7 +42,11 @@ Other supported wrapper stages are forwarded to the shared Devel_Ops workflow:
 ./build.sh verify
 ```
 
-The default stage is `build`. The workflow uses `appleiigs-project.env`, which sets:
+The default stage is `build`. Build, import, verify, and `iix` stages use the
+shared Devel_Ops workflow. GS/OS emulator stages are handled by this project's
+wrapper so VintaNetGS can launch GSplus with a serial-capable configuration.
+
+The workflow uses `appleiigs-project.env`, which sets:
 
 ```text
 SOURCE=vintanetgs_workflow.c
@@ -48,6 +55,8 @@ PROGRAM=vintanetgs
 DEST_NAME=VINTANETGS
 FILE_TYPE=S16
 AUX_TYPE=0
+GSPLUS_BIN=/Volumes/MEDIA/Applications/GSplus.app/Contents/MacOS/GSplus
+GSPLUS_CONFIG=gsplus-vintanetgs.kegs
 ```
 
 ## ORCA/C Workflow
@@ -72,6 +81,11 @@ VINTANETGS      S16  aux 0
 VINTANETGS.CFG  TXT  aux 0
 ```
 
+The GSplus emulator stage uses the repo-local `gsplus-vintanetgs.kegs` file.
+Slot 1 / printer-port capture is configured as GSplus incoming TCP on
+`127.0.0.1:6501`; `g_serial_mask[0]` remains zero for eight-bit binary data.
+Use `./scripts/capture-printer-serial.sh` for raw host capture.
+
 ## TEXTUIGS Integration
 
 The current Devel_Ops workflow compiles a single source file. VintaNetGS follows the same wrapper pattern used by TEXTUIGS:
@@ -85,7 +99,8 @@ The current Devel_Ops workflow compiles a single source file. VintaNetGS follows
 ## Current Limitations
 
 - Configuration is loaded from `VINTANETGS.CFG` in the current working directory, but there is no interactive setup editor yet.
-- No serial implementation.
+- Raw serial transport is not enabled for normal app polling; it is available
+  only through explicit serial diagnostics.
 - No packet framing or VintaNet protocol implementation.
 - No discovery or known-machine state.
 - No INFO request/response.

@@ -17,6 +17,7 @@ segment "TUI_CTRL";
 
 /* VintaNetGS implementation from src/. */
 segment "VN_PROTO";
+#include "src/vn_log.c"
 #include "src/vn_protocol.c"
 #include "src/vn_tlv.c"
 #include "src/vn_protocol_test.c"
@@ -28,6 +29,7 @@ segment "VN_UI";
 segment "VN_SERIAL";
 #include "src/serial/vn_serial_fw.c"
 #include "src/serial/vn_serial.c"
+#include "src/serial/vn_scc.c"
 segment "VN_APP";
 #include "src/vn_app.c"
 #include "src/vn_main.c"

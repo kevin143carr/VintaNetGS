@@ -93,6 +93,17 @@ Dependencies on earlier phases:
 
 - Phase 2 configuration values for serial settings.
 
+Status:
+
+- Under validation as a two-lane serial investigation.
+- Lane A, the Apple IIgs serial-firmware path, is deterministic enough for
+  manual diagnostics but is not byte-transparent under current GSplus tests:
+  `$09` and `$0A` are accepted by `PWRITE` but do not reach the host PTY.
+- Lane B, a future direct-SCC path, currently exists only as an isolated API
+  stub; no SCC registers are touched yet.
+- Phase 4 packet framing remains blocked until one transport lane proves
+  byte-faithful TX/RX.
+
 ## Phase 4: Packet Framing and Communication
 
 Scope:
