@@ -136,6 +136,9 @@ Status:
 
 - Started.  The main `T` diagnostic runs the TLV/packet self-test suite without
   enabling discovery, INFO polling, routing, file transfer, or remote control.
+- Further packet work must follow `docs/PROTOCOL_BASELINE.md`, which anchors
+  VintaNetGS packet/TLV behavior to the DOS VintaNet implementation and
+  protocol document before serial packet transmission is added.
 
 ## Phase 5: Discovery and Known-Machine State
 

@@ -110,5 +110,11 @@ Move on to TLV/packet library work unless packet integration later requires a
 specific serial follow-up.  The main `T` diagnostic runs the TLV/packet
 self-test suite and should be the next GSplus check.
 
+Packet work must be designed from the DOS VintaNet protocol baseline in
+`docs/PROTOCOL_BASELINE.md`.  The reverted packet bridge used `ACK` as a manual
+diagnostic, but `ACK` is not part of the active tested DOS behavior documented
+in `VINTANET_PROTOCOL.md`.  Start next with DOS-compatible
+`DISCOVERY_ANNOUNCE` packet construction/parsing instead.
+
 Do not begin direct SCC, discovery, INFO, routing, file transfer, or
 remote-control work yet.
