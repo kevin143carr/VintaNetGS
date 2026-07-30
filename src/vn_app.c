@@ -15,11 +15,24 @@
 
 #define VN_SERIAL_BACKEND_ENABLED 0
 #define VN_SERIAL_DIAG_SMOKE_SIZE 8U
+#define VN_SERIAL_DIAG_RX16_SIZE 16U
+#define VN_SERIAL_DIAG_RX16_PASSES 16U
+#define VN_SERIAL_DIAG_RXCMD_SIZE 8U
+#define VN_SERIAL_DIAG_RXCMD_PASSES 8U
 #define VN_SERIAL_DIAG_SWEEP_SIZE 256U
 #define VN_SERIAL_DIAG_POLL_PASSES 8U
 
 static const unsigned char vn_app_serial_smoke_pattern[VN_SERIAL_DIAG_SMOKE_SIZE] = {
     0x00U, 0x01U, 0x09U, 0x0AU, 0x0DU, 0x17U, 0x80U, 0xFFU
+};
+
+static const unsigned char vn_app_serial_rx16_pattern[VN_SERIAL_DIAG_RX16_SIZE] = {
+    0x00U, 0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U, 0x07U,
+    0x08U, 0x09U, 0x0AU, 0x0DU, 0x10U, 0x17U, 0x80U, 0xFFU
+};
+
+static const unsigned char vn_app_serial_rxcmd_pattern[VN_SERIAL_DIAG_RXCMD_SIZE] = {
+    0x09U, 0x17U, 0x08U, 0x09U, 0x0AU, 0x10U, 0x17U, 0x18U
 };
 
 static unsigned char vn_app_serial_sweep[VN_SERIAL_DIAG_SWEEP_SIZE];
@@ -104,10 +117,10 @@ static void vn_app_run_protocol_test(void)
     }
     if (result.failed == 0)
     {
-        sprintf(message, "PASSED %d OF %d TESTS.\nPROTOCOL OK.",
+        sprintf(message, "PASSED %d OF %d TESTS.\nTLV/PACKET OK.",
                 result.passed,
                 result.total);
-        textui_message_dialog("PROTOCOL TEST", message);
+        textui_message_dialog("TLV/PACKET TEST", message);
     }
     else
     {
@@ -115,7 +128,7 @@ static void vn_app_run_protocol_test(void)
                 result.failed,
                 result.total,
                 result.first_failed);
-        textui_message_dialog("PROTOCOL TEST", message);
+        textui_message_dialog("TLV/PACKET TEST", message);
     }
 }
 
@@ -123,10 +136,15 @@ static void vn_app_serial_diag_poll(VnSerialDiagnosticsDisplay *display,
                                     unsigned int passes)
 {
     unsigned int i;
+    unsigned int rx_count;
     unsigned char value;
+    char *cursor;
 
     display->view = VN_SERIAL_DIAG_IO;
     vn_app_serial_diag_clear_detail(display);
+    display->io_mode = "RX POLL";
+    display->io_requested = 0;
+    display->io_accepted = 0;
     sprintf(vn_app_log_buffer, "IO POLL BEGIN passes=%u status=%d",
             passes, (int)vn_serial_status());
     vn_log_line(vn_app_log_buffer);
@@ -137,24 +155,183 @@ static void vn_app_serial_diag_poll(VnSerialDiagnosticsDisplay *display,
         return;
     }
 
+    rx_count = 0;
     for (i = 0; i < passes; i++)
     {
         vn_serial_poll();
         while (vn_serial_read_byte(&value) > 0)
-            ;
+        {
+            if (display->io_byte_count < VN_SERIAL_DIAG_DISPLAY_BYTES)
+            {
+                display->io_bytes[display->io_byte_count] = value;
+                display->io_byte_count++;
+            }
+            rx_count++;
+        }
         display->io_polls++;
         if (vn_serial_status() != VN_SERIAL_STATUS_OPEN)
             break;
     }
 
     if (vn_serial_status() == VN_SERIAL_STATUS_OPEN)
-        display->io_status = "POLL DONE";
+    {
+        if (rx_count > 0)
+        {
+            display->io_status = "RX BYTES";
+            if (rx_count > display->io_byte_count)
+                display->io_restore_status = "RX FIRST 8";
+            else
+                display->io_restore_status = "RX CAPTURE";
+        }
+        else
+            display->io_status = "POLL DONE";
+    }
     else
         display->io_status = "POLL ERROR";
-    sprintf(vn_app_log_buffer, "IO POLL RESULT polls=%u status=%d err=%d",
-            display->io_polls, (int)vn_serial_status(),
-            vn_serial_stats()->last_error);
+    display->io_requested = rx_count;
+    display->io_accepted = rx_count;
+    sprintf(vn_app_log_buffer,
+            "IO POLL RESULT polls=%u rx=%u shown=%u status=%d err=%d",
+            display->io_polls, rx_count, display->io_byte_count,
+            (int)vn_serial_status(), vn_serial_stats()->last_error);
     vn_log_line(vn_app_log_buffer);
+    if (display->io_byte_count > 0)
+    {
+        cursor = vn_app_log_buffer;
+        cursor += sprintf(cursor, "IO POLL RX");
+        for (i = 0; i < display->io_byte_count; i++)
+            cursor += sprintf(cursor, " %02X",
+                              (unsigned int)display->io_bytes[i]);
+        vn_log_line(vn_app_log_buffer);
+    }
+}
+
+static void vn_app_serial_diag_rx_pattern(VnSerialDiagnosticsDisplay *display,
+                                          const char *name,
+                                          const unsigned char *pattern,
+                                          unsigned int length,
+                                          unsigned int passes)
+{
+    unsigned int i;
+    unsigned int rx_count;
+    unsigned int first_mismatch;
+    unsigned int first_extra;
+    unsigned char value;
+    unsigned char received[VN_SERIAL_DIAG_DISPLAY_BYTES];
+    char *cursor;
+
+    display->view = VN_SERIAL_DIAG_IO;
+    vn_app_serial_diag_clear_detail(display);
+    display->io_mode = name;
+    display->io_requested = length;
+    display->io_accepted = 0;
+    sprintf(vn_app_log_buffer, "%.12s BEGIN status=%d",
+            name, (int)vn_serial_status());
+    vn_log_line(vn_app_log_buffer);
+    if (vn_serial_status() != VN_SERIAL_STATUS_OPEN)
+    {
+        display->io_status = "OPEN FIRST";
+        sprintf(vn_app_log_buffer, "%.12s RESULT open_first", name);
+        vn_log_line(vn_app_log_buffer);
+        return;
+    }
+
+    rx_count = 0;
+    first_mismatch = 0xFFFFU;
+    first_extra = 0xFFFFU;
+    for (i = 0; i < passes; i++)
+    {
+        vn_serial_poll();
+        while (vn_serial_read_byte(&value) > 0)
+        {
+            if (rx_count < VN_SERIAL_DIAG_DISPLAY_BYTES)
+                received[rx_count] = value;
+            else if (first_extra == 0xFFFFU)
+                first_extra = (unsigned int)value;
+
+            if (display->io_byte_count < VN_SERIAL_DIAG_DISPLAY_BYTES)
+            {
+                display->io_bytes[display->io_byte_count] = value;
+                display->io_byte_count++;
+            }
+            rx_count++;
+        }
+        display->io_polls++;
+        if (vn_serial_status() != VN_SERIAL_STATUS_OPEN)
+            break;
+    }
+
+    display->io_accepted = rx_count;
+    for (i = 0; i < rx_count && i < length; i++)
+    {
+        if (received[i] != pattern[i])
+        {
+            first_mismatch = i;
+            break;
+        }
+    }
+
+    if (vn_serial_status() != VN_SERIAL_STATUS_OPEN)
+        display->io_status = "RX ERROR";
+    else if (first_mismatch != 0xFFFFU)
+    {
+        display->io_status = "RX MISMATCH";
+        display->io_failure_index = first_mismatch;
+        display->io_failure_value = received[first_mismatch];
+    }
+    else if (rx_count < length)
+    {
+        display->io_status = "RX PARTIAL";
+        display->io_restore_status = "RX PARTIAL";
+    }
+    else if (rx_count > length)
+    {
+        display->io_status = "RX EXTRA";
+        display->io_failure_index = length;
+        display->io_failure_value = first_extra & 0xFFU;
+    }
+    else
+    {
+        display->io_status = "RX PASS";
+        display->io_restore_status = "RX MATCH";
+    }
+
+    sprintf(vn_app_log_buffer,
+            "%.12s RESULT rx=%u shown=%u mismatch=%u extra=%u status=%d err=%d pfo=%u/%u/%u",
+            name,
+            rx_count, display->io_byte_count, first_mismatch,
+            first_extra, (int)vn_serial_status(),
+            vn_serial_stats()->last_error,
+            vn_serial_stats()->parity_errors,
+            vn_serial_stats()->framing_errors,
+            vn_serial_stats()->overrun_errors);
+    vn_log_line(vn_app_log_buffer);
+    if (rx_count > 0)
+    {
+        cursor = vn_app_log_buffer;
+        cursor += sprintf(cursor, "%.12s DATA", name);
+        for (i = 0; i < rx_count && i < VN_SERIAL_DIAG_DISPLAY_BYTES; i++)
+            cursor += sprintf(cursor, " %02X", (unsigned int)received[i]);
+        vn_log_line(vn_app_log_buffer);
+    }
+}
+
+static void vn_app_serial_diag_rx16(VnSerialDiagnosticsDisplay *display)
+{
+    vn_app_serial_diag_rx_pattern(display,
+                                  "RX16 TEST",
+                                  vn_app_serial_rx16_pattern,
+                                  VN_SERIAL_DIAG_RX16_SIZE,
+                                  VN_SERIAL_DIAG_RX16_PASSES);
+}
+
+static void vn_app_serial_diag_rxcmd(VnSerialDiagnosticsDisplay *display)
+{
+    vn_app_serial_diag_rx_pattern(display,
+                                  "RXCMD TEST",
+                                  vn_app_serial_rxcmd_pattern,
+                                  VN_SERIAL_DIAG_RXCMD_SIZE,
+                                  VN_SERIAL_DIAG_RXCMD_PASSES);
 }
 
 static void vn_app_serial_diag_clear_detail(VnSerialDiagnosticsDisplay *display)
@@ -965,6 +1142,16 @@ static void vn_app_run_serial_diagnostics(const VnConfig *config,
             {
                 vn_app_serial_diag_poll(&display,
                                         VN_SERIAL_DIAG_POLL_PASSES);
+                vn_app_serial_diag_draw(config, serial_configured, &display);
+            }
+            else if (event.ch == 'Y' || event.ch == 'y')
+            {
+                vn_app_serial_diag_rx16(&display);
+                vn_app_serial_diag_draw(config, serial_configured, &display);
+            }
+            else if (event.ch == 'Z' || event.ch == 'z')
+            {
+                vn_app_serial_diag_rxcmd(&display);
                 vn_app_serial_diag_draw(config, serial_configured, &display);
             }
             else if (event.ch == 'C' || event.ch == 'c')

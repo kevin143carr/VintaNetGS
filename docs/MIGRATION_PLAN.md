@@ -95,14 +95,18 @@ Dependencies on earlier phases:
 
 Status:
 
-- Under validation as a two-lane serial investigation.
-- Lane A, the Apple IIgs serial-firmware path, is deterministic enough for
-  manual diagnostics but is not byte-transparent under current GSplus tests:
-  `$09` and `$0A` are accepted by `PWRITE` but do not reach the host PTY.
+- Lane A, the Apple IIgs serial-firmware path, has proven TX/RX for the
+  eight-byte smoke payload on real Apple IIgs hardware at 2400,N,8,1.  The
+  focused RX command-byte diagnostic also passed with `0008/0008` and
+  `09 17 08 09 0A 10 17 18` received exactly.
+- Broader RX16 validation received `0014/0016`; expected bytes `$09` and
+  `$17` were absent in that run.  This remains a follow-up validation note,
+  not a blocker for TLV/packet library work.
 - Lane B, a future direct-SCC path, currently exists only as an isolated API
   stub; no SCC registers are touched yet.
-- Phase 4 packet framing remains blocked until one transport lane proves
-  byte-faithful TX/RX.
+- Phase 4 packet framing may proceed using the existing TLV/packet self-test
+  path; full 256-byte and sustained serial validation remain later serial
+  hardening tasks.
 
 ## Phase 4: Packet Framing and Communication
 
@@ -127,6 +131,11 @@ Acceptance criteria:
 Dependencies on earlier phases:
 
 - Phase 3 raw serial transport.
+
+Status:
+
+- Started.  The main `T` diagnostic runs the TLV/packet self-test suite without
+  enabling discovery, INFO polling, routing, file transfer, or remote control.
 
 ## Phase 5: Discovery and Known-Machine State
 

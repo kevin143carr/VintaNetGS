@@ -302,7 +302,7 @@ the firmware setup stream is applied before setting mode bit 23.  The
 diagnostic then verified mode-bit restoration, but the later automatic final
 `PINIT` hung at `MODE FINAL PINIT IN-FLIGHT`.  That final `PINIT` was removed
 from the normal success path; Lane A firmware remains the primary transport
-candidate pending real Apple IIgs hardware confirmation.
+candidate, with real Apple IIgs hardware TX confirmation recorded below.
 
 Repeatability note: after the first successful `H` run, backing out of the
 diagnostic view and re-entering initially showed stale complete state, and a
@@ -504,9 +504,8 @@ that `00`, `01`, `0D`, `17`, `80`, and `FF` reached the host.  For `$09` and
 no bytes.  This may be firmware command parsing rather than loss below the
 firmware boundary: `$09` is the documented printer-mode command character, and
 the following `$0A` can plausibly be consumed as command-stream input.  The
-Z-mode path is disabled after GSplus lockups; Lane A still requires a safer
-future experiment and host-side hex capture before it can be called
-byte-transparent.
+Z-mode path is disabled after GSplus lockups; the configured `H` diagnostic is
+the accepted safer experiment for byte-transparent TX validation.
 
 The modem stepper redraws `BYTE IO` with an `Mxx ...` marker before each
 firmware call so a freeze identifies the blocking slot-2 operation.  The
@@ -522,13 +521,81 @@ smoke exposed `09 17` bytes on the wire.  Transmit and receive results must be
 compared against the host endpoint or real hardware peer before claiming serial
 success.
 
-Real hardware or a serial-capable emulator must verify:
+Real Apple IIgs hardware TX result on 2026-07-30: CoolTerm hex mode at
+2400,N,8,1 captured the configured `H` diagnostic setup stream followed by
+the exact eight-byte smoke payload:
 
-- Mini-DIN-8 printer-port transmit and receive
+```text
+09 31 30 42 09 30 44 09 30 50 09 43 44 09 58 44
+09 46 44 09 4C 44 09 45 44 09 4D 44 09 42 45
+00 01 09 0A 0D 17 80 FF
+```
+
+The setup stream corresponds to `.10B.0D.0P.CD.XD.FD.LD.ED.MD.BE`; the final
+line is the smoke payload.  This confirms Lane A printer-firmware TX for the
+current payload and baud on real hardware.
+
+Real Apple IIgs hardware RX result on 2026-07-30: with the Control Panel
+printer device set to 2400,N,8,1, unlimited line length, buffering on, echo
+off, both CR/LF transforms off, and DCD, DSR/DTR, and XON/XOFF handshakes off,
+CoolTerm line-mode `hello` arrived as:
+
+```text
+68 65 6C 6C 6F 0D 0A
+```
+
+CoolTerm Send String in hex mode then transmitted the smoke payload:
+
+```text
+00 01 09 0A 0D 17 80 FF
+```
+
+The VintaNetGS `P` diagnostic displayed the exact same bytes.  This confirms
+Lane A printer-firmware RX for the smoke payload and current baud on real
+hardware.  The next diagnostic broadens RX validation to:
+
+```text
+00 01 02 03 04 05 06 07 08 09 0A 0D 10 17 80 FF
+```
+
+The first real-hardware RX16 run reported `0014/0016`, with no
+parity/framing/overrun errors displayed, and captured:
+
+```text
+00 01 02 03 04 05 06 07 08 0A 0D 10 80 FF
+```
+
+The expected bytes `$09` and `$17` were absent.  The final narrow serial
+diagnostic before moving to TLV/packet library work was `Z`, checking whether
+those command-character values are consistently consumed by the printer
+firmware RX path:
+
+```text
+09 17 08 09 0A 10 17 18
+```
+
+The real-hardware `Z` run passed:
+
+```text
+RX BYTES: 00000008
+BYTE IO:  RXCMD TEST
+RESULT:   RX PASS
+BYTES:    0008/0008
+POLL:     0008 ERR:0/0/0
+D0:       09 17 08 09 0A 10 17 18
+NOTE:     RX MATCH
+```
+
+Lane A is therefore sufficient for TLV/packet library work.  The RX16
+`0014/0016` result is retained as a follow-up validation note, not a current
+packet-layer blocker.
+
+Real hardware or a serial-capable emulator must still verify:
+
 - 1200, 2400, and 9600 baud setup, with 2400 as the current configuration
 - 8N1 timing and peer compatibility
 - all 256 byte values, especially printer firmware command byte `$09`
 - parity, framing, and overrun reporting under induced faults
 - sustained queue behavior and overflow counters
 
-No physical serial success is claimed by either emulator workflow.
+Full 256-byte and sustained serial behavior are not yet proven.

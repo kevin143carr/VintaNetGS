@@ -88,10 +88,10 @@ called on close to return the firmware to its initialized state.
 
 ## Testing
 
-The `T` command runs the deterministic ring-buffer wrap/full test before
-reporting the existing protocol test result.  The automatic firmware backend
-is currently disabled.  Startup, configuration save, normal polling, and
-shutdown do not call the serial firmware.
+The main-screen `T` command runs the deterministic ring-buffer wrap/full test
+before reporting the TLV/packet self-test result.  The automatic firmware
+backend is currently disabled.  Startup, configuration save, normal polling,
+and shutdown do not call the serial firmware.
 
 The serial diagnostics screen provides a manual 39-step firmware probe.  `N`
 runs exactly one checkpoint, `R` resets the sequence without calling firmware,

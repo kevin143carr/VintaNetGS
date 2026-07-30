@@ -347,13 +347,17 @@ static void vn_ui_draw_serial_io(const VnSerialDiagnosticsDisplay *display,
                 display->io_accepted,
                 display->io_requested);
         textui_write_field(3, 17, 34, text, TEXTUI_NORMAL);
-        sprintf(text, "POLLS: %04u", display->io_polls);
+        sprintf(text, "POLL:%04u ERR:%u/%u/%u",
+                display->io_polls,
+                stats->parity_errors,
+                stats->framing_errors,
+                stats->overrun_errors);
         textui_write_field(3, 18, 34, text, TEXTUI_NORMAL);
 
-        sprintf(byte_text, "DATA:");
-        position = 5;
+        sprintf(byte_text, "D0:");
+        position = 3;
         for (i = 0; i < display->io_byte_count &&
-                    i < VN_SERIAL_DIAG_DISPLAY_BYTES; i++)
+                    i < 8U; i++)
         {
             sprintf(byte_text + position, " %02X",
                     (unsigned int)display->io_bytes[i]);
@@ -361,17 +365,29 @@ static void vn_ui_draw_serial_io(const VnSerialDiagnosticsDisplay *display,
         }
         byte_text[position] = '\0';
         textui_write_field(3, 19, 34, byte_text, TEXTUI_NORMAL);
-        if (display->io_failure_index == 0xFFFFU)
-            sprintf(text, "RESTORE: %.14s VERIFY HOST",
-                    restore_status);
-        else
+
+        sprintf(byte_text, "D8:");
+        position = 3;
+        for (i = 8U; i < display->io_byte_count &&
+                    i < VN_SERIAL_DIAG_DISPLAY_BYTES; i++)
+        {
+            sprintf(byte_text + position, " %02X",
+                    (unsigned int)display->io_bytes[i]);
+            position += 3;
+        }
+        byte_text[position] = '\0';
+        textui_write_field(3, 20, 34, byte_text, TEXTUI_NORMAL);
+
+        if (display->io_failure_index != 0xFFFFU)
             sprintf(text, "FAIL %02u $%02X",
                     display->io_failure_index & 0xFFU,
                     display->io_failure_value & 0xFFU);
-        textui_write_field(3, 20, 34, text, TEXTUI_NORMAL);
-        textui_write_field(3, 21, 34,
-                           "I/W:RAW  H:8N1 NO-I  O:REST",
-                           TEXTUI_NORMAL);
+        else if (display->io_restore_status != 0)
+            sprintf(text, "NOTE: %.26s", restore_status);
+        else
+            sprintf(text, "RESTORE: %.14s VERIFY HOST",
+                    restore_status);
+        textui_write_field(3, 21, 34, text, TEXTUI_NORMAL);
     }
     else
     {
@@ -386,7 +402,7 @@ static void vn_ui_draw_serial_io(const VnSerialDiagnosticsDisplay *display,
                 stats->tx_bytes - display->tx_baseline);
         textui_write_field(3, 19, 34, text, TEXTUI_NORMAL);
         textui_write_field(3, 21, 34,
-                           "I/W:RAW  H:8N1 NO-I  O:REST",
+                           "P:RX Y:RX16 Z:RX09/17 H:TX8",
                            TEXTUI_NORMAL);
     }
 }
@@ -406,7 +422,7 @@ void vn_ui_draw_shell(const VnConfig *config,
     textui_write_field(0, 0, 40, title_text, TEXTUI_INVERSE);
     textui_draw_box(0, 1, 40, 22);
     textui_write_field(0, 23, 40,
-                       "C:CONFIG D:SERIAL T:TEST ESC/Q:EXIT",
+                       "C:CONFIG D:SERIAL T:TLV ESC/Q:EXIT",
                        TEXTUI_INVERSE);
 
     textui_write_field(3, 3, 34, VN_APP_NAME, TEXTUI_NORMAL);
@@ -440,7 +456,7 @@ void vn_ui_draw_shell(const VnConfig *config,
     vn_ui_format_serial_status(serial_text, config, serial_configured,
                                serial_backend_enabled);
     textui_write_field(3, 19, 34, serial_text, TEXTUI_NORMAL);
-    textui_write_field(3, 20, 34, "VINTANET: TESTED / IDLE", TEXTUI_NORMAL);
+    textui_write_field(3, 20, 34, "VINTANET: TLV/PACKET TEST READY", TEXTUI_NORMAL);
 
     textui_write_field(3, 21, 34, "VERSION " VN_VERSION_TEXT, TEXTUI_NORMAL);
 

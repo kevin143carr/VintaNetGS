@@ -3,7 +3,7 @@
 
 #include "include/vn_config.h"
 
-#define VN_SERIAL_DIAG_DISPLAY_BYTES 8U
+#define VN_SERIAL_DIAG_DISPLAY_BYTES 16U
 
 typedef enum VnSerialDiagView {
     VN_SERIAL_DIAG_COUNTERS = 0,
