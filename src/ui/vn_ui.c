@@ -402,7 +402,7 @@ static void vn_ui_draw_serial_io(const VnSerialDiagnosticsDisplay *display,
                 stats->tx_bytes - display->tx_baseline);
         textui_write_field(3, 19, 34, text, TEXTUI_NORMAL);
         textui_write_field(3, 21, 34,
-                           "H:TX8 P:RX Z:RX09 K:PKT",
+                           "P:RX Y:RX16 Z:RX09/17 H:TX8",
                            TEXTUI_NORMAL);
     }
 }

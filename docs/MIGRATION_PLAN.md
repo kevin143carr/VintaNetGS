@@ -136,10 +136,6 @@ Status:
 
 - Started.  The main `T` diagnostic runs the TLV/packet self-test suite without
   enabling discovery, INFO polling, routing, file transfer, or remote control.
-- A narrow packet transport bridge may be tested manually from serial
-  diagnostics with `K`.  It sends an ACK packet carrying a request-id TLV and
-  parses any echoed or peer-supplied packet; it does not announce discovery,
-  poll INFO, route packets, transfer files, or control applications.
 
 ## Phase 5: Discovery and Known-Machine State
 

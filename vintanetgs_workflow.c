@@ -21,7 +21,6 @@ segment "VN_PROTO";
 #include "src/vn_protocol.c"
 #include "src/vn_tlv.c"
 #include "src/vn_protocol_test.c"
-#include "src/network/vn_packet_transport.c"
 segment "VN_CONFIG";
 #include "src/config/vn_config.c"
 segment "VN_UI";
