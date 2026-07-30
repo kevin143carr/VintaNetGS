@@ -9,8 +9,10 @@
 #include "include/vn_config.h"
 #include "include/vn_config_ui.h"
 #include "include/vn_log.h"
+#include "include/vn_packet_transport.h"
 #include "include/vn_protocol_test.h"
 #include "include/vn_serial.h"
+#include "include/vn_tlv.h"
 #include "include/vn_ui.h"
 
 #define VN_SERIAL_BACKEND_ENABLED 0
@@ -19,6 +21,7 @@
 #define VN_SERIAL_DIAG_RX16_PASSES 16U
 #define VN_SERIAL_DIAG_RXCMD_SIZE 8U
 #define VN_SERIAL_DIAG_RXCMD_PASSES 8U
+#define VN_SERIAL_DIAG_PACKET_PASSES 16U
 #define VN_SERIAL_DIAG_SWEEP_SIZE 256U
 #define VN_SERIAL_DIAG_POLL_PASSES 8U
 
@@ -332,6 +335,162 @@ static void vn_app_serial_diag_rxcmd(VnSerialDiagnosticsDisplay *display)
                                   vn_app_serial_rxcmd_pattern,
                                   VN_SERIAL_DIAG_RXCMD_SIZE,
                                   VN_SERIAL_DIAG_RXCMD_PASSES);
+}
+
+static void vn_app_serial_diag_copy_bytes(VnSerialDiagnosticsDisplay *display,
+                                          const unsigned char *data,
+                                          unsigned int length)
+{
+    unsigned int i;
+
+    display->io_byte_count = 0;
+    for (i = 0; i < length && i < VN_SERIAL_DIAG_DISPLAY_BYTES; i++)
+    {
+        display->io_bytes[i] = data[i];
+        display->io_byte_count++;
+    }
+}
+
+static int vn_app_packet_diag_payload(VnU8 *payload, VnU16 *payload_length)
+{
+    VnU16 offset;
+
+    offset = 0;
+    if (!vn_tlv_add_u16(payload,
+                        VN_MAX_PAYLOAD,
+                        &offset,
+                        VN_TLV_REQUEST_ID,
+                        1U))
+        return 0;
+    *payload_length = offset;
+    return 1;
+}
+
+static int vn_app_packet_diag_match(const VnPacket *packet,
+                                    const VnU8 *payload,
+                                    VnU16 payload_length)
+{
+    if (packet->header.msg_type != VN_MSG_ACK)
+        return 0;
+    if (packet->header.seq != 1U)
+        return 0;
+    if (packet->header.flags != VN_FLAG_NONE)
+        return 0;
+    if (packet->header.payload_len != payload_length)
+        return 0;
+    if (payload_length > 0 &&
+        memcmp(packet->payload, payload, payload_length) != 0)
+        return 0;
+    return 1;
+}
+
+static void vn_app_serial_diag_packet(VnSerialDiagnosticsDisplay *display)
+{
+    static VnU8 payload[VN_MAX_PAYLOAD];
+    static VnPacket packet;
+    static unsigned char bytes[VN_SERIAL_DIAG_DISPLAY_BYTES];
+    VnU16 payload_length;
+    VnU16 packet_length;
+    unsigned int accepted;
+    unsigned int shown;
+    unsigned int i;
+    int result;
+
+    display->view = VN_SERIAL_DIAG_IO;
+    vn_app_serial_diag_clear_detail(display);
+    display->io_mode = "PKT ACK";
+    display->io_requested = 0;
+    display->io_accepted = 0;
+    display->io_polls = 0;
+    vn_log_line("PKT DIAG BEGIN");
+
+    if (vn_serial_status() != VN_SERIAL_STATUS_OPEN)
+    {
+        display->io_status = "OPEN FIRST";
+        vn_log_line("PKT DIAG RESULT open_first");
+        return;
+    }
+
+    if (!vn_app_packet_diag_payload(payload, &payload_length))
+    {
+        display->io_status = "PAYLOAD FAIL";
+        vn_log_line("PKT DIAG RESULT payload_fail");
+        return;
+    }
+
+    vn_packet_transport_reset();
+    result = vn_packet_transport_send(VN_MSG_ACK,
+                                      payload,
+                                      payload_length,
+                                      1U,
+                                      VN_FLAG_NONE,
+                                      &packet_length,
+                                      &accepted);
+    display->io_requested = packet_length;
+    display->io_accepted = accepted;
+    shown = vn_packet_transport_last_tx(bytes,
+                                        VN_SERIAL_DIAG_DISPLAY_BYTES);
+    vn_app_serial_diag_copy_bytes(display, bytes, shown);
+
+    if (result != VN_ERR_NONE)
+    {
+        display->io_status = "PKT TX ERROR";
+        display->io_failure_index = result & 0xFFFFU;
+        sprintf(vn_app_log_buffer,
+                "PKT DIAG RESULT tx_error result=%d accepted=%u len=%u",
+                result, accepted, packet_length);
+        vn_log_line(vn_app_log_buffer);
+        return;
+    }
+
+    result = 0;
+    for (i = 0; i < VN_SERIAL_DIAG_PACKET_PASSES; i++)
+    {
+        result = vn_packet_transport_poll(&packet);
+        display->io_polls++;
+        if (result != 0)
+            break;
+    }
+
+    shown = vn_packet_transport_last_rx(bytes,
+                                        VN_SERIAL_DIAG_DISPLAY_BYTES);
+    if (shown > 0)
+        vn_app_serial_diag_copy_bytes(display, bytes, shown);
+
+    if (result == 1)
+    {
+        if (vn_app_packet_diag_match(&packet, payload, payload_length))
+        {
+            display->io_status = "PKT RX PASS";
+            display->io_restore_status = "ACK MATCH";
+        }
+        else
+        {
+            display->io_status = "PKT MISMATCH";
+            display->io_failure_index = packet.header.msg_type;
+            display->io_failure_value = packet.header.seq;
+        }
+    }
+    else if (result < 0)
+    {
+        display->io_status = "PKT RX ERROR";
+        display->io_failure_index = (unsigned int)(-result);
+    }
+    else
+    {
+        display->io_status = "PKT TX QUEUED";
+        display->io_restore_status = "WAIT PEER";
+    }
+
+    sprintf(vn_app_log_buffer,
+            "PKT DIAG RESULT result=%d tx=%u/%u polls=%u rxbuf=%d status=%d",
+            result,
+            accepted,
+            packet_length,
+            display->io_polls,
+            vn_packet_transport_rx_buffered(),
+            (int)vn_serial_status());
+    vn_log_line(vn_app_log_buffer);
 }
 
 static void vn_app_serial_diag_clear_detail(VnSerialDiagnosticsDisplay *display)
@@ -1152,6 +1311,11 @@ static void vn_app_run_serial_diagnostics(const VnConfig *config,
             else if (event.ch == 'Z' || event.ch == 'z')
             {
                 vn_app_serial_diag_rxcmd(&display);
+                vn_app_serial_diag_draw(config, serial_configured, &display);
+            }
+            else if (event.ch == 'K' || event.ch == 'k')
+            {
+                vn_app_serial_diag_packet(&display);
                 vn_app_serial_diag_draw(config, serial_configured, &display);
             }
             else if (event.ch == 'C' || event.ch == 'c')

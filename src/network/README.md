@@ -1,13 +1,15 @@
 # Network Protocol Layer
 
-This directory is reserved for future VintaNet packet framing and communication.
+This directory owns VintaNet packet framing and communication above the raw
+serial transport.
 
-The network layer will eventually sit above raw serial transport and own packet framing, parsing, addressing, discovery state, INFO messages, and routed command behavior through separate modules.
+The current implementation starts with a narrow packet transport bridge:
+`vn_packet_transport` builds packets with the existing protocol library, queues
+them through `vn_serial_write`, accumulates serial RX bytes, and extracts
+complete packets with `vn_extract_packet`.
 
-Not implemented in Phase 1:
+Still not implemented:
 
-- Packet framing
-- TLV handling
 - Discovery announcements
 - Known-machine state
 - INFO request/response

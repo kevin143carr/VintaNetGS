@@ -110,5 +110,10 @@ Move on to TLV/packet library work unless packet integration later requires a
 specific serial follow-up.  The main `T` diagnostic runs the TLV/packet
 self-test suite and should be the next GSplus check.
 
+The serial diagnostics `K` key is the first packet-over-serial bridge check.
+It sends an ACK packet with a request-id TLV through `vn_serial_write`, polls
+serial RX, and parses any echoed or peer-supplied packet with
+`vn_extract_packet`.  No peer is started automatically.
+
 Do not begin direct SCC, discovery, INFO, routing, file transfer, or
 remote-control work yet.
