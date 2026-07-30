@@ -610,9 +610,37 @@ Lane A is therefore sufficient for TLV/packet library work.  The RX16
 `0014/0016` result is retained as a follow-up validation note, not a current
 packet-layer blocker.
 
-The next serial packet checkpoint is the `X`/`K`
-`DISCOVERY_ANNOUNCE` diagnostic.  It must be verified under GSplus or real
-hardware before claiming TLV-over-serial success.
+The first real-hardware serial TLV receive checkpoint passed on 2026-07-30.
+CoolTerm sent the raw 68-byte `discovery_announce.bin` packet as a binary file
+from the same AppleShare transfer folder as the HDV:
+
+```text
+/Volumes/AppleShare/VintageComputers/Apple IIGS/transfer/discovery_announce.bin
+```
+
+VintaNetGS was in serial diagnostics with `D`, then `I`; pressing `K` opened
+the bounded packet receive/parse diagnostic.  The screen reported:
+
+```text
+RX BYTES: 00000068
+BYTE IO:  PKT RX DISC
+RESULT:   PKT RX PASS
+BYTES:    0068/0068
+D0:       56 4E 01 02 38 00 01 00
+D8:       00 00 77 9D 01 02 00 34
+NOTE:     DISCOVERY OK
+```
+
+This proves that VintaNetGS can receive a real serial byte stream, match the
+DOS-compatible `DISCOVERY_ANNOUNCE` vector byte-for-byte, extract the VintaNet
+packet frame, and parse the Discovery TLVs on physical Apple IIgs hardware.
+The raw binary file must be sent as bytes; sending a text file containing hex
+will deliver ASCII hex characters instead.
+
+Next development should move from the diagnostic-only `X`/`K` hooks to a real
+serial packet layer that sends and receives VintaNet frames over the existing
+serial transport.  Preserve `X`/`K` as a hardware regression path while that
+layer is built.
 
 Real hardware or a serial-capable emulator must still verify:
 

@@ -145,6 +145,11 @@ Status:
 - The serial diagnostics add manual `X`/`K` `DISCOVERY_ANNOUNCE` packet tests
   above the proven byte-I/O path.  These are still diagnostics, not live
   discovery polling or routing.
+- Real Apple IIgs hardware verified `K` receiving the 68-byte raw
+  `DISCOVERY_ANNOUNCE` packet from CoolTerm as a binary file on 2026-07-30:
+  VintaNetGS reported `PKT RX PASS`, `0068/0068`, and `DISCOVERY OK`.
+  The next implementation step is the real serial packet layer, keeping the
+  `X`/`K` diagnostics as the known-good hardware regression path.
 
 ## Phase 5: Discovery and Known-Machine State
 

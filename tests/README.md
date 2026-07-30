@@ -30,3 +30,14 @@ screen, `X` sends the direct-test `DISCOVERY_ANNOUNCE` reference packet and
 `K` receives, byte-compares, extracts, and parses that same packet.  The
 VintaNetTestDriver `serial-capture` and `serial-send` commands provide the
 host-side GSplus TCP helpers for those manual diagnostics.
+
+Real Apple IIgs hardware passed the `K` receive/parse path on 2026-07-30 by
+sending the raw 68-byte `discovery_announce.bin` file from CoolTerm.  The file
+is kept beside the transferred HDV at:
+
+```text
+/Volumes/AppleShare/VintageComputers/Apple IIGS/transfer/discovery_announce.bin
+```
+
+Use CoolTerm binary/raw file send, not a text file containing hex.  Expected
+screen result is `PKT RX PASS`, `0068/0068`, and `DISCOVERY OK`.
