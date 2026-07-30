@@ -20,6 +20,8 @@ segment "VN_PROTO";
 #include "src/vn_log.c"
 #include "src/vn_protocol.c"
 #include "src/vn_tlv.c"
+#include "src/network/vn_discovery.c"
+#include "src/network/vn_info.c"
 #include "src/vn_protocol_test.c"
 segment "VN_CONFIG";
 #include "src/config/vn_config.c"

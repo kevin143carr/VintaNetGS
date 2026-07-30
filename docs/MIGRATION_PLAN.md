@@ -105,8 +105,8 @@ Status:
 - Lane B, a future direct-SCC path, currently exists only as an isolated API
   stub; no SCC registers are touched yet.
 - Phase 4 packet framing may proceed using the existing TLV/packet self-test
-  path; full 256-byte and sustained serial validation remain later serial
-  hardening tasks.
+  path and the explicit serial packet diagnostics.  Full 256-byte and
+  sustained serial validation remain later serial hardening tasks.
 
 ## Phase 4: Packet Framing and Communication
 
@@ -139,6 +139,12 @@ Status:
 - Further packet work must follow `docs/PROTOCOL_BASELINE.md`, which anchors
   VintaNetGS packet/TLV behavior to the DOS VintaNet implementation and
   protocol document before serial packet transmission is added.
+- DOS-compatible discovery and explicit INFO payload build/parse helpers are
+  the first network-layer checkpoint; they remain offline self-test behavior
+  only.
+- The serial diagnostics add manual `X`/`K` `DISCOVERY_ANNOUNCE` packet tests
+  above the proven byte-I/O path.  These are still diagnostics, not live
+  discovery polling or routing.
 
 ## Phase 5: Discovery and Known-Machine State
 

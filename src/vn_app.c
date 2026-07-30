@@ -8,6 +8,7 @@
 #include "include/vn_app.h"
 #include "include/vn_config.h"
 #include "include/vn_config_ui.h"
+#include "include/vn_discovery.h"
 #include "include/vn_log.h"
 #include "include/vn_protocol_test.h"
 #include "include/vn_serial.h"
@@ -21,6 +22,8 @@
 #define VN_SERIAL_DIAG_RXCMD_PASSES 8U
 #define VN_SERIAL_DIAG_SWEEP_SIZE 256U
 #define VN_SERIAL_DIAG_POLL_PASSES 8U
+#define VN_SERIAL_DIAG_PACKET_POLL_PASSES 64U
+#define VN_APP_TEST_MARKER_FILE "VINTANETGS.TEST"
 
 static const unsigned char vn_app_serial_smoke_pattern[VN_SERIAL_DIAG_SMOKE_SIZE] = {
     0x00U, 0x01U, 0x09U, 0x0AU, 0x0DU, 0x17U, 0x80U, 0xFFU
@@ -36,6 +39,9 @@ static const unsigned char vn_app_serial_rxcmd_pattern[VN_SERIAL_DIAG_RXCMD_SIZE
 };
 
 static unsigned char vn_app_serial_sweep[VN_SERIAL_DIAG_SWEEP_SIZE];
+static unsigned char vn_app_packet_diag_buffer[VN_MAX_PACKET_SIZE];
+static unsigned char vn_app_packet_diag_expected[VN_MAX_PACKET_SIZE];
+static unsigned char vn_app_packet_diag_parse[VN_MAX_PACKET_SIZE];
 static int vn_app_serial_sweep_ready;
 static int vn_app_mode8n1_used_this_run;
 static char vn_app_log_buffer[128];
@@ -130,6 +136,36 @@ static void vn_app_run_protocol_test(void)
                 result.first_failed);
         textui_message_dialog("TLV/PACKET TEST", message);
     }
+}
+
+static void vn_app_protocol_test_log_line(const char *line, void *context)
+{
+    (void)context;
+    vn_log_line(line);
+}
+
+static int vn_app_protocol_test_requested(void)
+{
+    FILE *file;
+    char line[32];
+
+    file = fopen(VN_APP_TEST_MARKER_FILE, "r");
+    if (file == 0)
+        return 0;
+
+    line[0] = '\0';
+    fgets(line, sizeof(line), file);
+    fclose(file);
+    return strstr(line, "PROTOCOL") != 0;
+}
+
+static int vn_app_run_protocol_test_for_driver(void)
+{
+    static VnProtocolTestResult result;
+
+    vn_log_line("VNTEST BEGIN platform=iigs");
+    vn_protocol_test_run_emit(&result, vn_app_protocol_test_log_line, 0);
+    return result.failed == 0 ? 0 : 1;
 }
 
 static void vn_app_serial_diag_poll(VnSerialDiagnosticsDisplay *display,
@@ -332,6 +368,207 @@ static void vn_app_serial_diag_rxcmd(VnSerialDiagnosticsDisplay *display)
                                   vn_app_serial_rxcmd_pattern,
                                   VN_SERIAL_DIAG_RXCMD_SIZE,
                                   VN_SERIAL_DIAG_RXCMD_PASSES);
+}
+
+static void vn_app_serial_diag_copy_display_bytes(
+    VnSerialDiagnosticsDisplay *display,
+    const unsigned char *data,
+    unsigned int length)
+{
+    unsigned int i;
+
+    display->io_byte_count = 0;
+    for (i = 0; i < length && i < VN_SERIAL_DIAG_DISPLAY_BYTES; i++)
+    {
+        display->io_bytes[i] = data[i];
+        display->io_byte_count++;
+    }
+}
+
+static void vn_app_serial_diag_send_discovery_packet(
+    VnSerialDiagnosticsDisplay *display)
+{
+    VnU16 packet_length;
+    unsigned int written;
+
+    display->view = VN_SERIAL_DIAG_IO;
+    display->io_requested = 0;
+    display->io_accepted = 0;
+    display->io_polls = 0;
+    vn_app_serial_diag_clear_detail(display);
+    display->io_mode = "PKT TX DISC";
+    vn_log_line("PKT TX DISC BEGIN");
+
+    packet_length = 0;
+    if (!vn_protocol_test_build_discovery_announce(vn_app_packet_diag_buffer,
+                                                   VN_MAX_PACKET_SIZE,
+                                                   &packet_length))
+    {
+        display->io_status = "PKT BUILD FAIL";
+        vn_log_line("PKT TX DISC RESULT build_fail");
+        return;
+    }
+
+    display->io_requested = packet_length;
+    vn_app_serial_diag_copy_display_bytes(display,
+                                          vn_app_packet_diag_buffer,
+                                          packet_length);
+    if (vn_serial_status() != VN_SERIAL_STATUS_OPEN)
+    {
+        display->io_status = "OPEN FIRST";
+        sprintf(vn_app_log_buffer,
+                "PKT TX DISC RESULT open_first len=%u",
+                packet_length);
+        vn_log_line(vn_app_log_buffer);
+        return;
+    }
+
+    written = vn_serial_diag_write_raw(vn_app_packet_diag_buffer,
+                                       packet_length);
+    display->io_accepted = written;
+    if (written == packet_length)
+        display->io_status = "PKT TX PASS";
+    else if (vn_serial_status() == VN_SERIAL_STATUS_OPEN)
+        display->io_status = "PKT TX PARTIAL";
+    else
+        display->io_status = "PKT TX ERROR";
+
+    sprintf(vn_app_log_buffer,
+            "PKT TX DISC RESULT len=%u written=%u status=%d err=%d",
+            packet_length, written, (int)vn_serial_status(),
+            vn_serial_stats()->last_error);
+    vn_log_line(vn_app_log_buffer);
+}
+
+static void vn_app_serial_diag_rx_discovery_packet(
+    VnSerialDiagnosticsDisplay *display)
+{
+    VnPacket packet;
+    VnNodeInfo info;
+    VnU16 expected_length;
+    unsigned int i;
+    unsigned int rx_count;
+    unsigned int first_mismatch;
+    unsigned char value;
+    int receive_length;
+    int extract_result;
+    int exact_match;
+    int parse_ok;
+
+    display->view = VN_SERIAL_DIAG_IO;
+    display->io_requested = 0;
+    display->io_accepted = 0;
+    display->io_polls = 0;
+    vn_app_serial_diag_clear_detail(display);
+    display->io_mode = "PKT RX DISC";
+    vn_log_line("PKT RX DISC BEGIN");
+
+    expected_length = 0;
+    if (!vn_protocol_test_build_discovery_announce(vn_app_packet_diag_expected,
+                                                   VN_MAX_PACKET_SIZE,
+                                                   &expected_length))
+    {
+        display->io_status = "PKT BUILD FAIL";
+        vn_log_line("PKT RX DISC RESULT build_fail");
+        return;
+    }
+    display->io_requested = expected_length;
+
+    if (vn_serial_status() != VN_SERIAL_STATUS_OPEN)
+    {
+        display->io_status = "OPEN FIRST";
+        sprintf(vn_app_log_buffer,
+                "PKT RX DISC RESULT open_first expected=%u",
+                expected_length);
+        vn_log_line(vn_app_log_buffer);
+        return;
+    }
+
+    rx_count = 0;
+    for (i = 0; i < VN_SERIAL_DIAG_PACKET_POLL_PASSES; i++)
+    {
+        vn_serial_poll();
+        while (rx_count < VN_MAX_PACKET_SIZE &&
+               vn_serial_read_byte(&value) > 0)
+        {
+            vn_app_packet_diag_buffer[rx_count] = value;
+            rx_count++;
+        }
+        display->io_polls++;
+        if (vn_serial_status() != VN_SERIAL_STATUS_OPEN)
+            break;
+    }
+    display->io_accepted = rx_count;
+    vn_app_serial_diag_copy_display_bytes(display,
+                                          vn_app_packet_diag_buffer,
+                                          rx_count);
+
+    exact_match = 0;
+    first_mismatch = 0xFFFFU;
+    if (rx_count == expected_length)
+    {
+        exact_match = 1;
+        for (i = 0; i < expected_length; i++)
+        {
+            if (vn_app_packet_diag_buffer[i] !=
+                vn_app_packet_diag_expected[i])
+            {
+                exact_match = 0;
+                first_mismatch = i;
+                break;
+            }
+        }
+    }
+    else if (rx_count > 0)
+        first_mismatch = rx_count < expected_length ? rx_count :
+                         expected_length;
+
+    memcpy(vn_app_packet_diag_parse, vn_app_packet_diag_buffer, rx_count);
+    receive_length = (int)rx_count;
+    memset(&packet, 0, sizeof(packet));
+    extract_result = vn_extract_packet(vn_app_packet_diag_parse,
+                                       &receive_length,
+                                       &packet);
+    memset(&info, 0, sizeof(info));
+    parse_ok = extract_result == 1 &&
+               packet.header.msg_type == VN_MSG_DISCOVERY_ANNOUNCE &&
+               vn_parse_node_info(packet.payload,
+                                  packet.header.payload_len,
+                                  &info) &&
+               info.node_id == 0x1234U &&
+               strcmp(info.node_name, "IIGS") == 0 &&
+               info.ttl == VN_DISCOVERY_REQUEST_TTL;
+
+    if (vn_serial_status() != VN_SERIAL_STATUS_OPEN)
+        display->io_status = "PKT RX ERROR";
+    else if (rx_count < expected_length)
+        display->io_status = "PKT RX PARTIAL";
+    else if (!exact_match)
+    {
+        display->io_status = "PKT RX MISMATCH";
+        display->io_failure_index = first_mismatch;
+        if (first_mismatch < rx_count)
+            display->io_failure_value =
+                vn_app_packet_diag_buffer[first_mismatch];
+    }
+    else if (!parse_ok)
+        display->io_status = "PKT PARSE FAIL";
+    else
+    {
+        display->io_status = "PKT RX PASS";
+        display->io_restore_status = "DISCOVERY OK";
+    }
+
+    sprintf(vn_app_log_buffer,
+            "PKT RX DISC RESULT expected=%u rx=%u exact=%d extract=%d remaining=%d parse=%d status=%d err=%d",
+            expected_length, rx_count, exact_match, extract_result,
+            receive_length, parse_ok, (int)vn_serial_status(),
+            vn_serial_stats()->last_error);
+    vn_log_line(vn_app_log_buffer);
+    sprintf(vn_app_log_buffer,
+            "PKT RX DISC NODE id=%04X name=%.20s ttl=%u hop=%u",
+            info.node_id, info.node_name, info.ttl, info.hop_count);
+    vn_log_line(vn_app_log_buffer);
 }
 
 static void vn_app_serial_diag_clear_detail(VnSerialDiagnosticsDisplay *display)
@@ -1154,6 +1391,16 @@ static void vn_app_run_serial_diagnostics(const VnConfig *config,
                 vn_app_serial_diag_rxcmd(&display);
                 vn_app_serial_diag_draw(config, serial_configured, &display);
             }
+            else if (event.ch == 'X' || event.ch == 'x')
+            {
+                vn_app_serial_diag_send_discovery_packet(&display);
+                vn_app_serial_diag_draw(config, serial_configured, &display);
+            }
+            else if (event.ch == 'K' || event.ch == 'k')
+            {
+                vn_app_serial_diag_rx_discovery_packet(&display);
+                vn_app_serial_diag_draw(config, serial_configured, &display);
+            }
             else if (event.ch == 'C' || event.ch == 'c')
             {
                 if (diagnostics_opened)
@@ -1211,6 +1458,15 @@ int vn_app_run(void)
             (int)status.result, config.ports, config.baud,
             serial_configured);
     vn_log_line(vn_app_log_buffer);
+    if (vn_app_protocol_test_requested())
+    {
+        int test_result;
+
+        test_result = vn_app_run_protocol_test_for_driver();
+        vn_log_line("APP EXIT");
+        textui_restore();
+        return test_result;
+    }
     vn_ui_draw_shell(&config, &status, serial_configured,
                      VN_SERIAL_BACKEND_ENABLED);
     vn_config_ui_show_startup_status(&status);

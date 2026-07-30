@@ -466,7 +466,10 @@ byte per keypress, `M` advances one slot-2 modem checkpoint at a time through
 `PINIT`, TX status checks, and the same raw smoke bytes without firmware setup,
 `S` queues the same pattern through the experimental escaped TX path, `P`
 performs bounded manual polling, and `C` closes the slot-1 diagnostic
-transport.  The experimental Z-mode diagnostic is disabled after GSplus
+transport, `X` sends one DOS-compatible `DISCOVERY_ANNOUNCE` packet generated
+from the direct TLV vector helper, and `K` polls for the same reference
+Discovery packet, compares the full packet bytes, extracts the frame, and
+parses the TLVs.  The experimental Z-mode diagnostic is disabled after GSplus
 lockups; host PTY verification remains manual and external.  The diagnostics
 loop does not continuously poll serial firmware while idle.
 
@@ -488,7 +491,24 @@ For Lane A host capture, start the slot-1 TCP capture before pressing `W`:
 
 It connects to `127.0.0.1:6501`, writes raw bytes to
 `/tmp/vintanetgs-printer.bin`, and prints a byte count plus `xxd -g 1 -u`
-hexadecimal dump after capture stops.
+hexadecimal dump after capture stops.  For packet-specific capture, the
+cross-platform driver also provides:
+
+```sh
+python3 /Users/kevincarr/projects/VintaNetTestDriver/vntest.py serial-capture
+```
+
+Start the capture, open VintaNetGS serial diagnostics with `D`, open the
+printer-port diagnostic path with `I`, then press `X`.  The driver compares the
+captured TCP bytes with the direct TLV `discovery_announce` reference vector.
+For RX parsing, open the same diagnostic path, run:
+
+```sh
+python3 /Users/kevincarr/projects/VintaNetTestDriver/vntest.py serial-send
+```
+
+then press `K` in VintaNetGS.  `K` reports pass/fail on screen and writes the
+full extraction and TLV parse result to `VINTANETGS.LOG`.
 
 The first logged run showed `I` returned `OPEN`, `W` locally accepted all eight
 raw smoke bytes, and the next hang occurred after `SERIAL DIAG EXIT CLOSE`.
@@ -589,6 +609,10 @@ NOTE:     RX MATCH
 Lane A is therefore sufficient for TLV/packet library work.  The RX16
 `0014/0016` result is retained as a follow-up validation note, not a current
 packet-layer blocker.
+
+The next serial packet checkpoint is the `X`/`K`
+`DISCOVERY_ANNOUNCE` diagnostic.  It must be verified under GSplus or real
+hardware before claiming TLV-over-serial success.
 
 Real hardware or a serial-capable emulator must still verify:
 

@@ -506,7 +506,7 @@ void vn_ui_draw_serial_diagnostics(long baud,
     textui_write_field(0, 0, 40, title_text, TEXTUI_INVERSE);
     textui_draw_box(0, 1, 40, 22);
     textui_write_field(0, 23, 40,
-                       "N/R:PROBE B/H/O/I/W/M/P/C:IO V:VIEW",
+                       "I/W:RAW X:PKT-TX K:PKT-RX C:CLS V:VW",
                        TEXTUI_INVERSE);
 
     textui_write_field(3, 3, 34, "PORT:   PRN S1 / MODEM S2", TEXTUI_NORMAL);

@@ -38,9 +38,10 @@ Other message IDs exist in `VNPROTO.H`, including `ACK`, `NAK`, and `ERROR`,
 but they are not active tested behavior unless the corresponding DOS behavior
 is documented first.
 
-Next packet-layer work should start with DOS-compatible
-`DISCOVERY_ANNOUNCE` packet construction and parsing.  Its payload uses TLVs
-for local identity and routing metadata:
+The offline packet-layer helpers now cover DOS-compatible
+`DISCOVERY_ANNOUNCE`, `INFO_REQ`, and `INFO_RESP` construction/parsing for
+deterministic tests.  These payloads use TLVs for local identity, target
+addressing, capability metadata, request IDs, and routing metadata:
 
 ```text
 NODE_ID
@@ -51,7 +52,17 @@ INFO_REVISION
 TTL
 HOP_COUNT
 KNOWN_NODE
+REQUEST_ID
+TARGET_NAME
+PROGRAM
+SERIAL_SPEED
+FILE_PROTOCOL
 ```
+
+The VintaNetGS discovery helper mirrors DOS `VNDISCOV.H` and `VNDISCOV.CPP`
+for offline payload construction and parsing before live discovery is enabled.
+The VintaNetGS info helper mirrors DOS `VNINFO.H` and `VNINFO.CPP` for explicit
+INFO request/response tests only.
 
 Do not start automatic INFO polling, routing, file transfer, launch execution,
 or remote-control behavior as part of packet/TLV validation.
