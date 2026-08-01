@@ -407,60 +407,247 @@ static void vn_ui_draw_serial_io(const VnSerialDiagnosticsDisplay *display,
     }
 }
 
-void vn_ui_draw_shell(const VnConfig *config,
-                      const VnConfigStatus *status,
-                      int serial_configured,
-                      int serial_backend_enabled)
+static const char *vn_ui_nonempty(const char *text, const char *fallback)
 {
-    char detail[34];
-    char serial_text[38];
+    if (text == 0 || text[0] == '\0')
+        return fallback;
+    return text;
+}
+
+static void vn_ui_draw_panel_title(int left,
+                                   int top,
+                                   int width,
+                                   int height,
+                                   const char *title)
+{
+    (void)height;
+    textui_write_field(left, top, width, title, TEXTUI_INVERSE);
+}
+
+static const char *vn_ui_short_serial_status(const VnUiDashboardDisplay *display)
+{
+    if (display == 0 || !display->serial_configured)
+        return "S1 CONFIG";
+    if (!display->serial_backend_enabled &&
+        vn_serial_status() == VN_SERIAL_STATUS_CLOSED)
+        return "S1 DISABLED";
+    return vn_serial_status_text();
+}
+
+static const char *vn_ui_dashboard_status_text(const VnUiDashboardDisplay *display)
+{
+    const VnConfig *config;
+    const VnConfigStatus *status;
+
+    if (display == 0)
+        return "No dashboard state.";
+    config = display->config;
+    status = display->config_status;
+    if (status != 0 &&
+        (status->result == VN_CONFIG_INVALID_VALUE ||
+         status->result == VN_CONFIG_INVALID_FORMAT ||
+         status->result == VN_CONFIG_READ_ERROR ||
+         status->result == VN_CONFIG_OPEN_ERROR ||
+         status->result == VN_CONFIG_WRITE_ERROR))
+        return status->message;
+    if (config != 0 && vn_config_needs_setup(config))
+        return "Setup needed.";
+    return vn_ui_nonempty(display->status_text, "Listening.");
+}
+
+static void vn_ui_draw_dashboard_local(const VnUiDashboardDisplay *display)
+{
+    const VnConfig *config;
+    const VnConfigStatus *status;
+    const char *machine;
+    const char *ports;
+    const char *packet_status;
+    char text[39];
+
+    config = display->config;
+    status = display->config_status;
+    machine = vn_ui_nonempty(config->machine, "SETUP NEEDED");
+    ports = vn_ui_nonempty(config->ports, "SETUP NEEDED");
+    packet_status = vn_ui_nonempty(display->packet_status, "TEST READY");
+
+    vn_ui_draw_panel_title(0, 1, 40, 5, "Local");
+
+    sprintf(text, "M:%.12s R:%.8s", machine, config->role);
+    textui_write_field(1, 2, 38, text, TEXTUI_NORMAL);
+
+    sprintf(text, "P:%.12s B:%ld C:%02d",
+            ports, config->baud, config->capability_count);
+    textui_write_field(1, 3, 38, text, TEXTUI_NORMAL);
+
+    sprintf(text, "S:%.12s PKT:%.12s",
+            vn_ui_short_serial_status(display), packet_status);
+    textui_write_field(1, 4, 38, text,
+                       status->result == VN_CONFIG_OK ||
+                       status->result == VN_CONFIG_DEFAULTS ?
+                       TEXTUI_NORMAL : TEXTUI_INVERSE);
+}
+
+static void vn_ui_draw_dashboard_machines(const VnUiDashboardDisplay *display)
+{
+    const VnUiDashboardMachine *machine;
+    unsigned int i;
+    char text[39];
+
+    vn_ui_draw_panel_title(0, 6, 40, 10, "Known Machines");
+
+    if (display->machine_count == 0)
+    {
+        textui_write_field(1, 7, 38, "(none heard yet)", TEXTUI_NORMAL);
+        for (i = 1; i < VN_UI_DASHBOARD_MACHINE_ROWS; i++)
+            textui_write_field(1, 7 + (int)i, 38, "", TEXTUI_NORMAL);
+        return;
+    }
+
+    for (i = 0; i < VN_UI_DASHBOARD_MACHINE_ROWS; i++)
+    {
+        if (i < display->machine_count)
+        {
+            machine = &display->machines[i];
+            sprintf(text, "%c %.12s %.6s %.5s %.6s",
+                    i == display->selected_machine ? '>' : ' ',
+                    vn_ui_nonempty(machine->machine, "?"),
+                    vn_ui_nonempty(machine->role, "?"),
+                    vn_ui_nonempty(machine->port, "?"),
+                    vn_ui_nonempty(machine->route, "?"));
+            textui_write_field(1, 7 + (int)i, 38, text,
+                               i == display->selected_machine ?
+                               TEXTUI_INVERSE : TEXTUI_NORMAL);
+        }
+        else
+            textui_write_field(1, 7 + (int)i, 38, "", TEXTUI_NORMAL);
+    }
+}
+
+static void vn_ui_draw_dashboard_details(const VnUiDashboardDisplay *display)
+{
+    const VnUiDashboardMachine *machine;
+    char text[39];
+
+    vn_ui_draw_panel_title(0, 16, 40, 6, "Machine Details");
+
+    if (display->machine_count == 0 ||
+        display->selected_machine >= display->machine_count)
+    {
+        textui_write_field(1, 17, 38, "No machine selected.", TEXTUI_NORMAL);
+        textui_write_field(1, 18, 38, "Route: --", TEXTUI_NORMAL);
+        textui_write_field(1, 19, 38, "Capability: --", TEXTUI_NORMAL);
+        textui_write_field(1, 20, 38, "Status: waiting", TEXTUI_NORMAL);
+        return;
+    }
+
+    machine = &display->machines[display->selected_machine];
+    sprintf(text, "Machine: %.27s",
+            vn_ui_nonempty(machine->machine, "?"));
+    textui_write_field(1, 17, 38, text, TEXTUI_NORMAL);
+
+    sprintf(text, "Role: %.10s Route: %.10s",
+            vn_ui_nonempty(machine->role, "?"),
+            vn_ui_nonempty(machine->route, "?"));
+    textui_write_field(1, 18, 38, text, TEXTUI_NORMAL);
+
+    sprintf(text, "Port: %.8s Caps: %u",
+            vn_ui_nonempty(machine->port, "?"),
+            machine->capability_count);
+    textui_write_field(1, 19, 38, text, TEXTUI_NORMAL);
+
+    sprintf(text, "Cap %u/%u: %.22s",
+            machine->capability_count == 0 ? 0 : display->selected_capability + 1,
+            machine->capability_count,
+            vn_ui_nonempty(machine->selected_capability, "--"));
+    textui_write_field(1, 20, 38, text, TEXTUI_NORMAL);
+}
+
+void vn_ui_draw_dashboard(const VnUiDashboardDisplay *display)
+{
     char title_text[41];
+    char status_text[39];
+
+    if (display == 0)
+    {
+        textui_clear();
+        textui_write_field(0, 0, 40, VN_APP_NAME, TEXTUI_INVERSE);
+        textui_write_field(0, 11, 40, "DASHBOARD STATE MISSING", TEXTUI_INVERSE);
+        textui_present();
+        return;
+    }
 
     textui_clear();
 
     vn_ui_format_title(title_text, VN_APP_NAME, 1);
     textui_write_field(0, 0, 40, title_text, TEXTUI_INVERSE);
-    textui_draw_box(0, 1, 40, 22);
+
+    vn_ui_draw_dashboard_local(display);
+    vn_ui_draw_dashboard_machines(display);
+    vn_ui_draw_dashboard_details(display);
+
+    sprintf(status_text, "%.38s", vn_ui_dashboard_status_text(display));
+    textui_write_field(0, 22, 40, status_text, TEXTUI_NORMAL);
     textui_write_field(0, 23, 40,
-                       "C:CONFIG D:SERIAL T:TLV ESC/Q:EXIT",
+                       "W Who C Config D Diag T Test Q Quit",
                        TEXTUI_INVERSE);
 
-    textui_write_field(3, 3, 34, VN_APP_NAME, TEXTUI_NORMAL);
-    textui_write_field(3, 4, 34, "APPLE IIGS SERIAL NETWORK", TEXTUI_NORMAL);
-    textui_write_field(3, 6, 34, "DEVELOPMENT SHELL", TEXTUI_INVERSE);
-
-    vn_ui_draw_label_status(9, "UI", "READY");
-    vn_ui_draw_label_status(10, "CONFIG", vn_config_result_text(status->result));
-    vn_ui_write_setup_value(11, "MACHINE", config->machine);
-    vn_ui_draw_label_status(12, "ROLE", config->role);
-    vn_ui_write_setup_value(13, "PORTS", config->ports);
-    vn_ui_write_number_status(14, "BAUD", config->baud);
-    vn_ui_write_number_status(15, "CAPABILITIES", (long)config->capability_count);
-
-    if (status->result == VN_CONFIG_INVALID_VALUE ||
-        status->result == VN_CONFIG_INVALID_FORMAT ||
-        status->result == VN_CONFIG_READ_ERROR ||
-        status->result == VN_CONFIG_OPEN_ERROR ||
-        status->result == VN_CONFIG_WRITE_ERROR)
-    {
-        sprintf(detail, "LINE %d %.20s", status->line, status->key);
-        textui_write_field(3, 17, 34, detail, TEXTUI_INVERSE);
-        textui_write_field(3, 18, 34, status->message, TEXTUI_NORMAL);
-    }
-    else if (vn_config_needs_setup(config))
-    {
-        textui_write_field(3, 17, 34, "SETUP STAGE REQUIRED", TEXTUI_INVERSE);
-        textui_write_field(3, 18, 34, "PRESS C TO CONFIGURE", TEXTUI_NORMAL);
-    }
-
-    vn_ui_format_serial_status(serial_text, config, serial_configured,
-                               serial_backend_enabled);
-    textui_write_field(3, 19, 34, serial_text, TEXTUI_NORMAL);
-    textui_write_field(3, 20, 34, "VINTANET: TLV/PACKET TEST READY", TEXTUI_NORMAL);
-
-    textui_write_field(3, 21, 34, "VERSION " VN_VERSION_TEXT, TEXTUI_NORMAL);
-
     textui_present();
+}
+
+void vn_ui_update_dashboard_local(const VnUiDashboardDisplay *display)
+{
+    if (display == 0)
+        return;
+    vn_ui_draw_dashboard_local(display);
+    textui_present();
+}
+
+void vn_ui_update_dashboard_machines(const VnUiDashboardDisplay *display)
+{
+    if (display == 0)
+        return;
+    vn_ui_draw_dashboard_machines(display);
+    textui_present();
+}
+
+void vn_ui_update_dashboard_details(const VnUiDashboardDisplay *display)
+{
+    if (display == 0)
+        return;
+    vn_ui_draw_dashboard_details(display);
+    textui_present();
+}
+
+void vn_ui_update_dashboard_status(const VnUiDashboardDisplay *display)
+{
+    char status_text[39];
+
+    if (display == 0)
+        return;
+    vn_ui_draw_dashboard_local(display);
+    sprintf(status_text, "%.38s", vn_ui_dashboard_status_text(display));
+    textui_write_field(0, 22, 40, status_text, TEXTUI_NORMAL);
+    textui_present();
+}
+
+void vn_ui_draw_shell(const VnConfig *config,
+                      const VnConfigStatus *status,
+                      int serial_configured,
+                      int serial_backend_enabled)
+{
+    static VnUiDashboardDisplay display;
+
+    display.config = config;
+    display.config_status = status;
+    display.serial_configured = serial_configured;
+    display.serial_backend_enabled = serial_backend_enabled;
+    display.packet_status = "TEST READY";
+    display.status_text = "Listening.";
+    display.machine_count = 0;
+    display.selected_machine = 0;
+    display.selected_capability = 0;
+
+    vn_ui_draw_dashboard(&display);
 }
 
 void vn_ui_draw_serial_diagnostics(long baud,

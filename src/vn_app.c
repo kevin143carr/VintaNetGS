@@ -10,6 +10,7 @@
 #include "include/vn_config_ui.h"
 #include "include/vn_discovery.h"
 #include "include/vn_log.h"
+#include "include/vn_network.h"
 #include "include/vn_protocol_test.h"
 #include "include/vn_serial.h"
 #include "include/vn_ui.h"
@@ -42,11 +43,79 @@ static unsigned char vn_app_serial_sweep[VN_SERIAL_DIAG_SWEEP_SIZE];
 static unsigned char vn_app_packet_diag_buffer[VN_MAX_PACKET_SIZE];
 static unsigned char vn_app_packet_diag_expected[VN_MAX_PACKET_SIZE];
 static unsigned char vn_app_packet_diag_parse[VN_MAX_PACKET_SIZE];
+static VnPacket vn_app_packet_diag_packet;
+static VnNodeInfo vn_app_packet_diag_info;
 static int vn_app_serial_sweep_ready;
 static int vn_app_mode8n1_used_this_run;
 static char vn_app_log_buffer[128];
+static VnUiDashboardDisplay vn_app_dashboard_display;
 
 static void vn_app_serial_diag_clear_detail(VnSerialDiagnosticsDisplay *display);
+
+static void vn_app_draw_dashboard(const VnConfig *config,
+                                  const VnConfigStatus *status,
+                                  int serial_configured,
+                                  const VnNetworkState *network)
+{
+    memset(&vn_app_dashboard_display, 0, sizeof(vn_app_dashboard_display));
+    vn_app_dashboard_display.config = config;
+    vn_app_dashboard_display.config_status = status;
+    vn_app_dashboard_display.serial_configured = serial_configured;
+    vn_app_dashboard_display.serial_backend_enabled = serial_configured;
+    vn_app_dashboard_display.packet_status = "PKT READY";
+    vn_app_dashboard_display.status_text = "Ready.";
+    vn_app_dashboard_display.machine_count = 0;
+    vn_app_dashboard_display.selected_machine = 0;
+    vn_app_dashboard_display.selected_capability = 0;
+    if (network != 0)
+        vn_network_fill_dashboard(network, &vn_app_dashboard_display);
+
+    vn_ui_draw_dashboard(&vn_app_dashboard_display);
+}
+
+static void vn_app_clear_network_dirty(VnNetworkState *network)
+{
+    if (network == 0)
+        return;
+    network->dirty = 0;
+    network->dirty_flags = 0;
+}
+
+static void vn_app_refresh_dashboard(const VnConfig *config,
+                                     const VnConfigStatus *status,
+                                     int serial_configured,
+                                     VnNetworkState *network,
+                                     int full_draw)
+{
+    unsigned int flags;
+
+    if (network == 0)
+        return;
+    flags = network->dirty_flags;
+    if (full_draw || (flags & VN_NETWORK_DIRTY_LAYOUT) != 0)
+    {
+        vn_app_draw_dashboard(config, status, serial_configured, network);
+        vn_app_clear_network_dirty(network);
+        return;
+    }
+
+    memset(&vn_app_dashboard_display, 0, sizeof(vn_app_dashboard_display));
+    vn_app_dashboard_display.config = config;
+    vn_app_dashboard_display.config_status = status;
+    vn_app_dashboard_display.serial_configured = serial_configured;
+    vn_app_dashboard_display.serial_backend_enabled = serial_configured;
+    vn_app_dashboard_display.packet_status = "PKT READY";
+    vn_app_dashboard_display.status_text = "Ready.";
+    vn_network_fill_dashboard(network, &vn_app_dashboard_display);
+
+    if ((flags & VN_NETWORK_DIRTY_MACHINES) != 0)
+        vn_ui_update_dashboard_machines(&vn_app_dashboard_display);
+    if ((flags & VN_NETWORK_DIRTY_DETAILS) != 0)
+        vn_ui_update_dashboard_details(&vn_app_dashboard_display);
+    if ((flags & VN_NETWORK_DIRTY_STATUS) != 0)
+        vn_ui_update_dashboard_status(&vn_app_dashboard_display);
+    vn_app_clear_network_dirty(network);
+}
 
 static int vn_app_port_one_selected(const VnConfig *config)
 {
@@ -65,19 +134,6 @@ static int vn_app_port_one_selected(const VnConfig *config)
     return 0;
 }
 
-static int vn_app_open_serial(const VnConfig *config)
-{
-#if VN_SERIAL_BACKEND_ENABLED
-    vn_serial_close();
-    if (!vn_app_port_one_selected(config))
-        return 0;
-    return vn_serial_open(1, config->baud);
-#else
-    (void)config;
-    return 0;
-#endif
-}
-
 static void vn_app_show_serial_result(const VnConfig *config)
 {
     static char message[96];
@@ -88,12 +144,6 @@ static void vn_app_show_serial_result(const VnConfig *config)
                               "Select port 1 to enable serial.");
         return;
     }
-
-#if !VN_SERIAL_BACKEND_ENABLED
-    textui_message_dialog("SERIAL DISABLED",
-                          "Firmware backend temporarily disabled.");
-    return;
-#endif
 
     if (vn_serial_status() == VN_SERIAL_STATUS_OPEN)
     {
@@ -443,8 +493,6 @@ static void vn_app_serial_diag_send_discovery_packet(
 static void vn_app_serial_diag_rx_discovery_packet(
     VnSerialDiagnosticsDisplay *display)
 {
-    VnPacket packet;
-    VnNodeInfo info;
     VnU16 expected_length;
     unsigned int i;
     unsigned int rx_count;
@@ -525,19 +573,20 @@ static void vn_app_serial_diag_rx_discovery_packet(
 
     memcpy(vn_app_packet_diag_parse, vn_app_packet_diag_buffer, rx_count);
     receive_length = (int)rx_count;
-    memset(&packet, 0, sizeof(packet));
+    memset(&vn_app_packet_diag_packet, 0, sizeof(vn_app_packet_diag_packet));
     extract_result = vn_extract_packet(vn_app_packet_diag_parse,
                                        &receive_length,
-                                       &packet);
-    memset(&info, 0, sizeof(info));
+                                       &vn_app_packet_diag_packet);
+    memset(&vn_app_packet_diag_info, 0, sizeof(vn_app_packet_diag_info));
     parse_ok = extract_result == 1 &&
-               packet.header.msg_type == VN_MSG_DISCOVERY_ANNOUNCE &&
-               vn_parse_node_info(packet.payload,
-                                  packet.header.payload_len,
-                                  &info) &&
-               info.node_id == 0x1234U &&
-               strcmp(info.node_name, "IIGS") == 0 &&
-               info.ttl == VN_DISCOVERY_REQUEST_TTL;
+               vn_app_packet_diag_packet.header.msg_type ==
+               VN_MSG_DISCOVERY_ANNOUNCE &&
+               vn_parse_node_info(vn_app_packet_diag_packet.payload,
+                                  vn_app_packet_diag_packet.header.payload_len,
+                                  &vn_app_packet_diag_info) &&
+               vn_app_packet_diag_info.node_id == 0x1234U &&
+               strcmp(vn_app_packet_diag_info.node_name, "IIGS") == 0 &&
+               vn_app_packet_diag_info.ttl == VN_DISCOVERY_REQUEST_TTL;
 
     if (vn_serial_status() != VN_SERIAL_STATUS_OPEN)
         display->io_status = "PKT RX ERROR";
@@ -567,7 +616,10 @@ static void vn_app_serial_diag_rx_discovery_packet(
     vn_log_line(vn_app_log_buffer);
     sprintf(vn_app_log_buffer,
             "PKT RX DISC NODE id=%04X name=%.20s ttl=%u hop=%u",
-            info.node_id, info.node_name, info.ttl, info.hop_count);
+            vn_app_packet_diag_info.node_id,
+            vn_app_packet_diag_info.node_name,
+            vn_app_packet_diag_info.ttl,
+            vn_app_packet_diag_info.hop_count);
     vn_log_line(vn_app_log_buffer);
 }
 
@@ -1442,11 +1494,9 @@ int vn_app_run(void)
 {
     static VnConfig config;
     static VnConfigStatus status;
+    static VnNetworkState network;
     TextUiKeyEvent event;
-    VnSerialStatus displayed_serial_status;
-    int displayed_serial_error;
     int serial_configured;
-    unsigned char value;
 
     textui_init();
     vn_log_start();
@@ -1458,6 +1508,7 @@ int vn_app_run(void)
             (int)status.result, config.ports, config.baud,
             serial_configured);
     vn_log_line(vn_app_log_buffer);
+    vn_network_init(&network);
     if (vn_app_protocol_test_requested())
     {
         int test_result;
@@ -1467,29 +1518,21 @@ int vn_app_run(void)
         textui_restore();
         return test_result;
     }
-    vn_ui_draw_shell(&config, &status, serial_configured,
-                     VN_SERIAL_BACKEND_ENABLED);
+    vn_network_open(&config, &network, serial_configured);
+    if (!vn_config_needs_setup(&config) && serial_configured)
+        vn_network_wake_discovery(&config, &network);
+    vn_app_draw_dashboard(&config, &status, serial_configured, &network);
+    vn_app_clear_network_dirty(&network);
     vn_config_ui_show_startup_status(&status);
-    vn_app_open_serial(&config);
-    displayed_serial_status = vn_serial_status();
-    displayed_serial_error = vn_serial_stats()->last_error;
-    vn_ui_draw_shell(&config, &status, serial_configured,
-                     VN_SERIAL_BACKEND_ENABLED);
+    vn_app_draw_dashboard(&config, &status, serial_configured, &network);
+    vn_app_clear_network_dirty(&network);
 
     while (1)
     {
-        vn_serial_poll();
-        while (vn_serial_read_byte(&value) > 0)
-            ;
-
-        if (displayed_serial_status != vn_serial_status() ||
-            displayed_serial_error != vn_serial_stats()->last_error)
-        {
-            displayed_serial_status = vn_serial_status();
-            displayed_serial_error = vn_serial_stats()->last_error;
-            vn_ui_draw_shell(&config, &status, serial_configured,
-                             VN_SERIAL_BACKEND_ENABLED);
-        }
+        vn_network_poll(&config, &network);
+        if (network.dirty)
+            vn_app_refresh_dashboard(&config, &status, serial_configured,
+                                     &network, 0);
 
         if (!textui_poll_key_event(&event))
             continue;
@@ -1498,36 +1541,79 @@ int vn_app_run(void)
             event.ch == 'q')
             break;
 
-        if (event.ch == 'C' || event.ch == 'c')
+        if (event.key == TEXTUI_KEY_UP)
+        {
+            vn_network_select_previous_machine(&network);
+            vn_app_refresh_dashboard(&config, &status, serial_configured,
+                                     &network, 0);
+        }
+        else if (event.key == TEXTUI_KEY_DOWN)
+        {
+            vn_network_select_next_machine(&network);
+            vn_app_refresh_dashboard(&config, &status, serial_configured,
+                                     &network, 0);
+        }
+        else if (event.key == TEXTUI_KEY_LEFT)
+        {
+            vn_network_select_previous_capability(&network);
+            vn_app_refresh_dashboard(&config, &status, serial_configured,
+                                     &network, 0);
+        }
+        else if (event.key == TEXTUI_KEY_RIGHT ||
+                 event.key == TEXTUI_KEY_TAB)
+        {
+            vn_network_select_next_capability(&network);
+            vn_app_refresh_dashboard(&config, &status, serial_configured,
+                                     &network, 0);
+        }
+        else if (event.key == TEXTUI_KEY_ENTER)
+        {
+            vn_network_request_selected_info(&config, &network);
+            vn_app_refresh_dashboard(&config, &status, serial_configured,
+                                     &network, 0);
+        }
+        else if (event.ch == 'C' || event.ch == 'c')
         {
             if (vn_config_ui_run_wizard(&config, &status))
             {
                 serial_configured = vn_app_port_one_selected(&config);
-                vn_app_open_serial(&config);
+                vn_network_close(&network);
+                vn_network_init(&network);
+                vn_network_open(&config, &network, serial_configured);
+                if (!vn_config_needs_setup(&config) && serial_configured)
+                    vn_network_wake_discovery(&config, &network);
                 vn_app_show_serial_result(&config);
-                displayed_serial_status = vn_serial_status();
-                displayed_serial_error = vn_serial_stats()->last_error;
             }
-            vn_ui_draw_shell(&config, &status, serial_configured,
-                             VN_SERIAL_BACKEND_ENABLED);
+            vn_app_draw_dashboard(&config, &status, serial_configured,
+                                  &network);
+            vn_app_clear_network_dirty(&network);
+        }
+        else if (event.ch == 'W' || event.ch == 'w')
+        {
+            vn_network_open(&config, &network, serial_configured);
+            vn_network_start_manual_discovery(&config, &network);
+            vn_network_poll(&config, &network);
+            vn_app_refresh_dashboard(&config, &status, serial_configured,
+                                     &network, 0);
         }
         else if (event.ch == 'T' || event.ch == 't')
         {
             vn_app_run_protocol_test();
-            vn_ui_draw_shell(&config, &status, serial_configured,
-                             VN_SERIAL_BACKEND_ENABLED);
+            vn_app_draw_dashboard(&config, &status, serial_configured,
+                                  &network);
+            vn_app_clear_network_dirty(&network);
         }
         else if (event.ch == 'D' || event.ch == 'd')
         {
             vn_app_run_serial_diagnostics(&config, serial_configured);
-            displayed_serial_status = vn_serial_status();
-            displayed_serial_error = vn_serial_stats()->last_error;
-            vn_ui_draw_shell(&config, &status, serial_configured,
-                             VN_SERIAL_BACKEND_ENABLED);
+            vn_network_open(&config, &network, serial_configured);
+            vn_app_draw_dashboard(&config, &status, serial_configured,
+                                  &network);
+            vn_app_clear_network_dirty(&network);
         }
     }
 
-    vn_serial_close();
+    vn_network_close(&network);
     vn_log_line("APP EXIT");
     textui_restore();
     return 0;

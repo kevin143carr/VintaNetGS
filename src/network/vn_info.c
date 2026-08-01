@@ -110,6 +110,55 @@ int vn_build_info_resp(const VnConfig *config,
     return 1;
 }
 
+int vn_build_info_resp_basic(const VnConfig *config,
+                             const char *target,
+                             unsigned long info_revision,
+                             unsigned int request_id,
+                             VnU8 *payload,
+                             VnU16 payload_size,
+                             VnU16 *payload_length)
+{
+    VnU16 offset;
+    int i;
+
+    offset = 0;
+    if (!vn_tlv_add_u16(payload, payload_size, &offset, VN_TLV_NODE_ID,
+                        (VnU16)vn_config_node_id(config)))
+        return 0;
+    if (!vn_tlv_add_string(payload, payload_size, &offset, VN_TLV_NODE_NAME,
+                           config->machine))
+        return 0;
+    if (!vn_tlv_add_string(payload, payload_size, &offset,
+                           VN_TLV_TARGET_NAME, target))
+        return 0;
+    if (!vn_tlv_add_string(payload, payload_size, &offset, VN_TLV_ROLE,
+                           config->role))
+        return 0;
+    if (!vn_tlv_add_u32(payload, payload_size, &offset, VN_TLV_CAP_FLAGS,
+                        vn_config_cap_flags(config)))
+        return 0;
+    if (!vn_tlv_add_u32(payload, payload_size, &offset,
+                        VN_TLV_INFO_REVISION, info_revision))
+        return 0;
+    if (!vn_tlv_add_u16(payload, payload_size, &offset, VN_TLV_REQUEST_ID,
+                        (VnU16)request_id))
+        return 0;
+    if (!vn_tlv_add_u16(payload, payload_size, &offset,
+                        VN_TLV_HOP_COUNT, 0))
+        return 0;
+
+    for (i = 0; i < config->capability_count; i++)
+    {
+        if (!vn_tlv_add_string(payload, payload_size, &offset,
+                               VN_TLV_PROGRAM,
+                               config->capabilities[i].name))
+            return 0;
+    }
+
+    *payload_length = offset;
+    return 1;
+}
+
 int vn_parse_info_resp(const VnU8 *payload,
                        VnU16 payload_length,
                        VnNodeInfo *info,

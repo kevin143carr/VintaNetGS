@@ -1,120 +1,94 @@
 # Next Session Handoff
 
-Codex thread id: `019fa36a-3a46-76f2-ae61-0559e89c2b93`
-
-Last committed state:
+Last base commit before this handoff:
 
 ```text
-260343f Validate Lane A firmware TX smoke path
+44fefe7 Document hardware serial TLV pass
 ```
 
 ## Current Result
 
-Lane A firmware TX is byte-transparent for the eight-byte smoke payload under
-GSplus incoming TCP when using the configured `H` diagnostic.
+VintaNetGS now has the first live direct VintaNet interface on Apple IIgs:
 
-Verified GSplus host capture:
+- TEXTUIGS dashboard with local status, known machines, selected-machine details,
+  packet status, and quiet partial redraws.
+- Live direct discovery over printer port 1 using the VintaNet packet/TLV layer.
+- Manual `W` starts a bounded WARM announce window.
+- Startup uses HOT discovery when configured.
+- Incoming new nodes or new discovery sessions can wake a bounded WARM response
+  window when currently COLD.
+- Safe direct `KNOWN_NODE` gossip is included and parsed.
+- Enter on a selected machine can send an on-demand `INFO_REQ`.
+- INFO responses are direct only, use the raw-safe packet path, and use a basic
+  required-field payload to avoid Apple IIgs printer-firmware `$09` command-byte
+  problems.
+- Up/down machine navigation is display-only and cancels any pending INFO retry.
 
-```text
-00 01 09 0A 0D 17 80 FF
-```
+Real hardware status on 2026-08-01:
 
-Real Apple IIgs hardware also verified the configured `H` diagnostic TX path
-on 2026-07-30 with CoolTerm hex mode at 2400,N,8,1.  The capture showed the
-complete setup stream followed by the exact smoke payload:
+- Woz, the Apple IIgs, appeared on the VintaNet DOS machine list.
+- The Compaq 286 serial card was replaced because the old UART could not keep up.
+- After the UART replacement and quiet-navigation changes, the current build is
+  working fairly well on the real VintaNet.
 
-```text
-09 31 30 42 09 30 44 09 30 50 09 43 44 09 58 44
-09 46 44 09 4C 44 09 45 44 09 4D 44 09 42 45
-00 01 09 0A 0D 17 80 FF
-```
+## Verified Build
 
-Real Apple IIgs hardware also verified RX for the same smoke payload on
-2026-07-30.  CoolTerm Send String in hex mode transmitted:
-
-```text
-00 01 09 0A 0D 17 80 FF
-```
-
-VintaNetGS displayed the exact same bytes through the `P` diagnostic poll.
-Before the Control Panel settings were corrected, line-mode text input showed
-partial lines such as `68 65 0A`; with printer-port settings at 2400,N,8,1,
-unlimited line length, buffering on, echo off, LF transforms off, and all
-handshakes off, `hello` was received as `68 65 6C 6C 6F 0D 0A`.
-
-The working diagnostic sequence is:
+Latest transferred artifacts:
 
 ```text
-D
-V
-H
+/Volumes/AppleShare/VintageComputers/Apple IIGS/transfer/VINTANETGS
+/Volumes/AppleShare/VintageComputers/Apple IIGS/transfer/VINTANETGS.CFG
+/Volumes/AppleShare/VintageComputers/Apple IIGS/transfer/System601HD.hdv
 ```
 
-Do not press `I` before `H`.  `H` performs a visible initial `PINIT`, sends the
-setup stream while command recognition is enabled, sets mode bit 23 for the
-payload, sends the payload, restores the original mode image with
-`SetModeBits`, and verifies restoration.  It does not perform a final `PINIT`.
-
-## Important Evidence
-
-Raw `I` then `W` locally accepts all eight bytes, but host capture loses
-`09 0A`, matching printer-firmware command parsing.
-
-Mode-bit `B` allowed `09 0A` through but, without setup, captured:
+Transfer timestamp:
 
 ```text
-00 00 01 09 0A 0D 17 00 7F
+2026-08-01 13:35
 ```
 
-Chunked `H` without initial `PINIT` emitted setup bytes as data and still
-masked high-bit payload bytes.  Therefore the initial `PINIT` is required
-before setup under GSplus.
-
-## Next Step
-
-Lane A TX/RX smoke is confirmed on real Apple IIgs hardware.  The next narrow
-phase is a broader RX16 hardware diagnostic using:
+Transferred sizes:
 
 ```text
-00 01 02 03 04 05 06 07 08 09 0A 0D 10 17 80 FF
+VINTANETGS      208,344 bytes
+VINTANETGS.CFG      447 bytes
+System601HD.hdv 33,554,432 bytes
 ```
 
-First real-hardware RX16 run showed:
+The transfer copies were byte-compared against the local build artifacts.
+
+Verification completed:
 
 ```text
-00 01 02 03 04 05 06 07 08 0A 0D 10 80 FF
+./build.sh build
+Protocol self-test: SUMMARY total=33 passed=33 failed=0
+RUN_SECONDS=3 ./build.sh run-gsos
 ```
 
-The count was `0014/0016`, with no parity/framing/overrun errors displayed.
-Expected bytes `09` and `17` were absent.
+`run-gsos` completed build, import, and GSPlus launch.  Escalation was required
+only because the workflow updates the sibling `System601HD.hdv` disk image.
 
-The final command-byte RX diagnostic with `Z` used:
+## Important Boundaries
 
-```text
-09 17 08 09 0A 10 17 18
-```
+- Do not modify sibling `TEXTUIGS` or `Devel_Ops` from this repo.
+- Keep `vintanetgs_workflow.c` as the single compiler source.
+- Keep discovery announcements separate from INFO request/response behavior.
+- Do not add automatic INFO polling.
+- Do not add remote-control code until serial and packet communications are
+  proven on real hardware.
+- VintaNetGS does not launch applications yet.  Capability names are displayed,
+  but selecting a capability and pressing Enter reports `Launch not implemented.`
 
-Real Apple IIgs hardware result:
+## Tomorrow
 
-```text
-RX BYTES: 00000008
-BYTE IO:  RXCMD TEST
-RESULT:   RX PASS
-BYTES:    0008/0008
-POLL:     0008 ERR:0/0/0
-D0:       09 17 08 09 0A 10 17 18
-NOTE:     RX MATCH
-```
+Start with real-hardware observation, not new features:
 
-Move on to TLV/packet library work unless packet integration later requires a
-specific serial follow-up.  The main `T` diagnostic runs the TLV/packet
-self-test suite and should be the next GSplus check.
-
-Packet work must be designed from the DOS VintaNet protocol baseline in
-`docs/PROTOCOL_BASELINE.md`.  The reverted packet bridge used `ACK` as a manual
-diagnostic, but `ACK` is not part of the active tested DOS behavior documented
-in `VINTANET_PROTOCOL.md`.  Start next with DOS-compatible
-`DISCOVERY_ANNOUNCE` packet construction/parsing instead.
-
-Do not begin direct SCC, discovery, INFO, routing, file transfer, or
-remote-control work yet.
+- Confirm the screen remains quiet while using up/down navigation.
+- Confirm pressing Enter is visibly the only action that starts an INFO request.
+- Confirm Woz responds to an INFO request from Franky after direct request
+  traffic reaches the IIgs.
+- Watch for repeated `INFO_REQ` from DOS peers; if they repeat, add duplicate
+  suppression for inbound INFO request/response handling before adding launch.
+- If INFO is stable, plan the next phase as a minimal direct `LAUNCH_REQ` /
+  `LAUNCH_RESP` between cooperating VintaNet machines.  Do not implement routed
+  launch or arbitrary GS/OS application control first.

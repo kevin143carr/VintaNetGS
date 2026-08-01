@@ -64,5 +64,26 @@ for offline payload construction and parsing before live discovery is enabled.
 The VintaNetGS info helper mirrors DOS `VNINFO.H` and `VNINFO.CPP` for explicit
 INFO request/response tests only.
 
+The first live INFO implementation follows the DOS on-demand behavior: pressing
+Enter on a selected known machine may send an `INFO_REQ`, and a machine receiving
+an `INFO_REQ` addressed to its local `TARGET_NAME` sends an `INFO_RESP` with its
+role and configured capability names.  VintaNetGS intentionally limits this
+slice to direct port-1 request/response handling; DOS cached replies, forwarded
+requests, reverse-path routing, and launch-on-Enter remain deferred.
+Machine-list navigation is display-only.  Up/down selection movement does not
+send INFO traffic and cancels any pending INFO retry sequence started by an
+earlier Enter key.
+
+Live discovery now follows the DOS convergence pattern for the direct subset:
+manual `W` starts a bounded WARM announce window, incoming new nodes or new
+discovery sessions can wake a bounded WARM response window, and safe
+`KNOWN_NODE` gossip is included and parsed.  VintaNetGS still does not relay
+packets across ports.
+
+The Apple IIgs printer firmware treats byte `$09` as its command character, so
+live direct INFO packets are emitted through the same raw-safe packet strategy
+used by discovery: required INFO fields only, optional risky TLVs omitted, and
+packet sequence search used to avoid `$09` in the emitted frame.
+
 Do not start automatic INFO polling, routing, file transfer, launch execution,
 or remote-control behavior as part of packet/TLV validation.

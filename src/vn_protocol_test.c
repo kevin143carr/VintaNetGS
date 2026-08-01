@@ -89,6 +89,18 @@ static int test_bytes_equal(const VnU8 *left, const VnU8 *right, int length)
     return 1;
 }
 
+static int test_contains_byte(const VnU8 *data, VnU16 length, VnU8 value)
+{
+    VnU16 i;
+
+    for (i = 0; i < length; i++)
+    {
+        if (data[i] == value)
+            return 1;
+    }
+    return 0;
+}
+
 static int test_build_vector_payload(VnU16 *payload_length)
 {
     VnU16 offset;
@@ -177,6 +189,7 @@ void vn_protocol_test_run_emit(VnProtocolTestResult *result,
     VnU16 offset;
     VnU16 packet_length;
     VnU16 payload_length;
+    VnU16 sequence;
     VnU16 tlv_offset;
     int receive_length;
     int extract_result;
@@ -606,6 +619,57 @@ void vn_protocol_test_run_emit(VnProtocolTestResult *result,
                 ok && packet_length > VN_HEADER_SIZE);
     if (ok)
         test_emit_vector("info_resp", test_packet_buffer, packet_length);
+
+    payload_length = 0;
+    packet_length = 0;
+    memset(test_payload, 0, sizeof(test_payload));
+    ok = vn_build_info_resp_basic(&test_config,
+                                  TEST_TARGET_NAME,
+                                  TEST_INFO_REVISION,
+                                  TEST_REQUEST_ID,
+                                  test_payload,
+                                  VN_MAX_PAYLOAD,
+                                  &payload_length);
+    memset(&test_node_info, 0, sizeof(test_node_info));
+    test_programs[0] = '\0';
+    test_record(result, "info_resp_basic_parse",
+                ok &&
+                vn_parse_info_resp(test_payload,
+                                   payload_length,
+                                   &test_node_info,
+                                   test_programs,
+                                   sizeof(test_programs)) &&
+                strcmp(test_node_info.node_name, "IIGS") == 0 &&
+                strcmp(test_node_info.target_name, TEST_TARGET_NAME) == 0 &&
+                strcmp(test_node_info.role, "ADMIN") == 0 &&
+                test_node_info.request_id == TEST_REQUEST_ID &&
+                strcmp(test_programs, "HELLO") == 0);
+    if (ok)
+    {
+        ok = 0;
+        for (sequence = 1; sequence < 257U; sequence++)
+        {
+            packet_length = 0;
+            if (vn_build_packet(test_packet_buffer,
+                                VN_MAX_PACKET_SIZE,
+                                VN_MSG_INFO_RESP,
+                                test_payload,
+                                payload_length,
+                                sequence,
+                                VN_FLAG_IS_RESPONSE,
+                                &packet_length) == VN_ERR_NONE &&
+                !test_contains_byte(test_packet_buffer,
+                                    packet_length,
+                                    0x09U))
+            {
+                ok = 1;
+                break;
+            }
+        }
+    }
+    test_record(result, "info_resp_basic_no_09",
+                ok &&
+                packet_length > VN_HEADER_SIZE);
 
     sprintf(test_line, "SUMMARY total=%d passed=%d failed=%d",
             result->total, result->passed, result->failed);
