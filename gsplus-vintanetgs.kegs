@@ -13,6 +13,7 @@ g_cfg_rom_path = /Users/kevincarr/projects/AppleIIGS/APPLE2GS.ROM2
 g_serial_cfg[0] = 3
 g_serial_device[0] =
 g_serial_mask[0] = 0
+g_serial_modem_init_telnet = 0
 g_serial_cfg[1] = 0
 g_serial_device[1] =
 g_serial_mask[1] = 0

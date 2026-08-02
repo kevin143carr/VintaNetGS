@@ -1,13 +1,16 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "include/vn_log.h"
 #include "include/vn_serial.h"
 #include "include/vn_serial_fw.h"
 
 #define VN_SERIAL_SLOT_PRINTER 1
 #define VN_SERIAL_SLOT_MODEM 2
 #define VN_SERIAL_POLL_BUDGET 32U
-#define VN_SERIAL_CLOSE_RESTORE_ENABLED 0
+#define VN_SERIAL_CLOSE_PINIT_ENABLED 0
+#define VN_SERIAL_CLOSE_RX_DRAIN_BUDGET 128U
+#define VN_SERIAL_CLOSE_TX_FLUSH_BUDGET 128U
 #define VN_SERIAL_MODE_BIT23 0x00800000UL
 #define VN_SERIAL_MODE_TOTAL_STEPS 23U
 #define VN_SERIAL_MODE_8N1_TOTAL_STEPS 88U
@@ -48,6 +51,7 @@ static VnSerialProbeStatus vn_serial_probe_current;
 static VnSerialModeStatus vn_serial_mode_current;
 static int vn_serial_probe_initialized;
 static int vn_serial_mode_initialized;
+static char vn_serial_log_buffer[128];
 
 static int vn_serial_configure_slot(unsigned int slot, long baud);
 
@@ -436,14 +440,72 @@ int vn_serial_open(int slot, long baud)
     return 1;
 }
 
+static void vn_serial_log_close_stage(const char *stage,
+                                      unsigned int value,
+                                      int result)
+{
+    sprintf(vn_serial_log_buffer,
+            "SERIAL CLOSE %.20s value=%u result=%d err=%d",
+            stage, value, result, vn_serial_current_stats.last_error);
+    vn_log_line(vn_serial_log_buffer);
+}
+
+static void vn_serial_drain_for_close(void)
+{
+    unsigned int i;
+    unsigned int drained;
+    unsigned int flushed;
+    int result;
+
+    drained = 0;
+    result = 0;
+    for (i = 0; i < VN_SERIAL_CLOSE_RX_DRAIN_BUDGET; i++)
+    {
+        result = vn_serial_poll_rx_once();
+        if (result <= 0)
+            break;
+        drained++;
+    }
+    vn_serial_log_close_stage("DRAIN RX", drained, result);
+
+    flushed = 0;
+    result = 0;
+    for (i = 0; i < VN_SERIAL_CLOSE_TX_FLUSH_BUDGET; i++)
+    {
+        result = vn_serial_poll_tx_once();
+        if (result <= 0)
+            break;
+        flushed++;
+    }
+    vn_serial_log_close_stage("FLUSH TX", flushed, result);
+}
+
 void vn_serial_close(void)
 {
-#if VN_SERIAL_CLOSE_RESTORE_ENABLED
+#if VN_SERIAL_CLOSE_PINIT_ENABLED
     VnSerialFirmwareResult result;
-
-    if (vn_serial_current_status == VN_SERIAL_STATUS_OPEN)
-        vn_serial_fw_init(&result);
 #endif
+    int was_open;
+
+    was_open = (vn_serial_current_status == VN_SERIAL_STATUS_OPEN);
+
+    if (was_open)
+    {
+        sprintf(vn_serial_log_buffer,
+                "SERIAL CLOSE BEGIN rxq=%u txq=%u",
+                vn_serial_rx_ring.count, vn_serial_tx_ring.count);
+        vn_log_line(vn_serial_log_buffer);
+        vn_serial_drain_for_close();
+#if VN_SERIAL_CLOSE_PINIT_ENABLED
+        vn_serial_fw_init(&result);
+        sprintf(vn_serial_log_buffer,
+                "SERIAL CLOSE PINIT carry=%u x=%u arb=%u",
+                result.carry, result.x, result.arbiter_error);
+        vn_log_line(vn_serial_log_buffer);
+#else
+        vn_log_line("SERIAL CLOSE PINIT SKIPPED");
+#endif
+    }
 
     vn_serial_current_status = VN_SERIAL_STATUS_CLOSED;
     vn_serial_escape_index = 0;
@@ -454,6 +516,8 @@ void vn_serial_close(void)
                         vn_serial_tx_storage,
                         VN_SERIAL_TX_BUFFER_SIZE);
     vn_serial_update_queue_stats();
+    if (was_open)
+        vn_serial_log_close_stage("DONE", 0U, 0);
 }
 
 void vn_serial_poll(void)

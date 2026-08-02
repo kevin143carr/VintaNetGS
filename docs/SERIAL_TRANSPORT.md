@@ -374,6 +374,18 @@ because the PTY bridge did not stay alive reliably across GSplus open/close
 behavior and added an unneeded capture variable.  Slot 2 is not configured for
 the same endpoint in this test.
 
+Launch GSplus through the repo workflow or the dedicated launcher:
+
+```sh
+./build.sh run-gsos
+./scripts/launch-vintanetgs-gsplus.sh
+```
+
+Do not use Spotlight-launched GSplus for VintaNetGS serial testing unless the
+global `~/config.kegs` has been manually updated with the same serial settings.
+Spotlight does not pass `-cfg gsplus-vintanetgs.kegs`, so the slot-1 incoming
+TCP listener may be absent even though the disk image still boots.
+
 After launching GSplus, verify the slot-1 listener:
 
 ```sh
@@ -512,10 +524,12 @@ full extraction and TLV parse result to `VINTANETGS.LOG`.
 
 The first logged run showed `I` returned `OPEN`, `W` locally accepted all eight
 raw smoke bytes, and the next hang occurred after `SERIAL DIAG EXIT CLOSE`.
-That places the GSplus lockup in the close-time restoring `PINIT`, not in the
-raw smoke write.  Close-time firmware restore is disabled during this diagnostic
-phase so the app can exit and leave a readable log; open/configure still uses
-the slot-1 firmware initialization path.
+That placed the earlier GSplus lockup in the close-time restoring `PINIT`, not
+in the raw smoke write.  The current application close path performs bounded
+RX/TX cleanup, logs each close stage, clears the local queues, and deliberately
+skips close-time `PINIT` because that synchronous firmware path can lock the
+interface while exiting under GSplus.  Startup/open still performs the normal
+slot-1 firmware initialization path.
 
 The `U` no-setup printer path called slot-1 `PINIT`, accepted one raw byte, and
 the host received only `00`.  The configured Lane A `L` stepper then showed

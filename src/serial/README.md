@@ -89,9 +89,11 @@ called on close to return the firmware to its initialized state.
 ## Testing
 
 The main-screen `T` command runs the deterministic ring-buffer wrap/full test
-before reporting the TLV/packet self-test result.  The automatic firmware
-backend is currently disabled.  Startup, configuration save, normal polling,
-and shutdown do not call the serial firmware.
+before reporting the TLV/packet self-test result.  Startup and normal polling
+use the slot-1 printer firmware when the network transport is configured.
+Shutdown performs bounded RX/TX cleanup and clears local queues before
+returning to GS/OS.  It does not call close-time `PINIT` because that
+synchronous firmware path can lock GSplus while exiting.
 
 The serial diagnostics screen provides a manual 39-step firmware probe.  `N`
 runs exactly one checkpoint, `R` resets the sequence without calling firmware,

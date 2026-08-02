@@ -84,7 +84,24 @@ VINTANETGS.CFG  TXT  aux 0
 The GSplus emulator stage uses the repo-local `gsplus-vintanetgs.kegs` file.
 Slot 1 / printer-port capture is configured as GSplus incoming TCP on
 `127.0.0.1:6501`; `g_serial_mask[0]` remains zero for eight-bit binary data.
-Use `./scripts/capture-printer-serial.sh` for raw host capture.
+Use `./scripts/launch-vintanetgs-gsplus.sh` to start GSplus with this exact
+configuration without rebuilding or importing.  Launching GSplus from Spotlight
+uses the default `~/config.kegs` file and is not valid for VintaNetGS serial
+testing unless that global config is manually updated.
+
+After GSplus starts, verify the printer-port listener:
+
+```sh
+lsof -nP -iTCP:6501 -sTCP:LISTEN
+```
+
+Use `./scripts/capture-printer-serial.sh` for raw host capture, or run the live
+host peer from the test-driver repo:
+
+```sh
+cd /Users/kevincarr/projects/VintaNetTestDriver
+python3 vntest.py serial-peer --serial-port 6501
+```
 
 ## TEXTUIGS Integration
 
