@@ -455,20 +455,39 @@ static const char *vn_ui_dashboard_status_text(const VnUiDashboardDisplay *displ
     return vn_ui_nonempty(display->status_text, "Listening.");
 }
 
-static void vn_ui_draw_dashboard_local(const VnUiDashboardDisplay *display)
+static void vn_ui_draw_dashboard_local_status(
+    const VnUiDashboardDisplay *display)
 {
-    const VnConfig *config;
     const VnConfigStatus *status;
-    const char *machine;
-    const char *ports;
     const char *packet_status;
     char text[39];
 
-    config = display->config;
     status = display->config_status;
+    packet_status = vn_ui_nonempty(display->packet_status,
+                                   "TEST READY");
+
+    sprintf(text, "S:%.12s PKT:%.12s",
+            vn_ui_short_serial_status(display),
+            packet_status);
+
+    textui_write_field(
+        1, 4, 38, text,
+        status->result == VN_CONFIG_OK ||
+        status->result == VN_CONFIG_DEFAULTS
+            ? TEXTUI_NORMAL
+            : TEXTUI_INVERSE);
+}
+
+static void vn_ui_draw_dashboard_local(const VnUiDashboardDisplay *display)
+{
+    const VnConfig *config;
+    const char *machine;
+    const char *ports;
+    char text[39];
+
+    config = display->config;
     machine = vn_ui_nonempty(config->machine, "SETUP NEEDED");
     ports = vn_ui_nonempty(config->ports, "SETUP NEEDED");
-    packet_status = vn_ui_nonempty(display->packet_status, "TEST READY");
 
     vn_ui_draw_panel_title(0, 1, 40, 5, "Local");
 
@@ -478,13 +497,8 @@ static void vn_ui_draw_dashboard_local(const VnUiDashboardDisplay *display)
     sprintf(text, "P:%.12s B:%ld C:%02d",
             ports, config->baud, config->capability_count);
     textui_write_field(1, 3, 38, text, TEXTUI_NORMAL);
-
-    sprintf(text, "S:%.12s PKT:%.12s",
-            vn_ui_short_serial_status(display), packet_status);
-    textui_write_field(1, 4, 38, text,
-                       status->result == VN_CONFIG_OK ||
-                       status->result == VN_CONFIG_DEFAULTS ?
-                       TEXTUI_NORMAL : TEXTUI_INVERSE);
+            
+    vn_ui_draw_dashboard_local_status(display);
 }
 
 static void vn_ui_draw_dashboard_machines(const VnUiDashboardDisplay *display)
@@ -624,9 +638,19 @@ void vn_ui_update_dashboard_status(const VnUiDashboardDisplay *display)
 
     if (display == 0)
         return;
-    vn_ui_draw_dashboard_local(display);
-    sprintf(status_text, "%.38s", vn_ui_dashboard_status_text(display));
-    textui_write_field(0, 22, 40, status_text, TEXTUI_NORMAL);
+
+    /*
+     * Update only the changing Local status line rather than
+     * redrawing the entire Local panel.
+     */
+    vn_ui_draw_dashboard_local_status(display);
+
+    sprintf(status_text, "%.38s",
+            vn_ui_dashboard_status_text(display));
+
+    textui_write_field(0, 22, 40,
+                       status_text, TEXTUI_NORMAL);
+
     textui_present();
 }
 

@@ -319,7 +319,6 @@ static void vn_network_add_or_update_machine(VnNetworkState *state,
         changed = 1;
     if (info->discovery_seq != 0 &&
         machine->discovery_seq != info->discovery_seq)
-        changed = 1;
     if (metadata_present &&
         (strcmp(machine->role, info->role) != 0 ||
          machine->cap_flags != info->cap_flags ||
@@ -349,9 +348,19 @@ static void vn_network_add_or_update_machine(VnNetworkState *state,
 
     if (changed)
     {
-        vn_network_mark_dirty(state,
-                              VN_NETWORK_DIRTY_MACHINES |
-                              VN_NETWORK_DIRTY_DETAILS);
+    unsigned int dirty_flags;
+
+        dirty_flags = VN_NETWORK_DIRTY_MACHINES;
+
+        /*
+        * Only redraw Machine Details when the changed machine
+        * is the machine currently being displayed.
+        */
+        if ((unsigned int)index == state->selected_machine)
+            dirty_flags |= VN_NETWORK_DIRTY_DETAILS;
+
+        vn_network_mark_dirty(state, dirty_flags);
+
         if (old_session != 0 &&
             old_session != machine->discovery_session_id)
             vn_network_set_status(state, "New discovery session heard.");
@@ -461,9 +470,12 @@ static void vn_network_update_machine_info(VnNetworkState *state,
     vn_network_store_programs(machine, programs);
     if (machine->selected_capability >= machine->capability_count)
         machine->selected_capability = 0;
-    vn_network_mark_dirty(state,
-                          VN_NETWORK_DIRTY_MACHINES |
-                          VN_NETWORK_DIRTY_DETAILS);
+
+    vn_network_mark_dirty(state, VN_NETWORK_DIRTY_MACHINES);
+
+    if ((unsigned int)index == state->selected_machine)
+        vn_network_mark_dirty(state, VN_NETWORK_DIRTY_DETAILS);
+        
     vn_network_set_status(state, "Info received.");
     vn_network_set_packet_status(state, "RX INFO");
 }

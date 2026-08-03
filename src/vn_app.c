@@ -25,6 +25,7 @@
 #define VN_SERIAL_DIAG_POLL_PASSES 8U
 #define VN_SERIAL_DIAG_PACKET_POLL_PASSES 64U
 #define VN_APP_TEST_MARKER_FILE "VINTANETGS.TEST"
+#define VN_APP_UI_REFRESH_TICKS 6UL
 
 static const unsigned char vn_app_serial_smoke_pattern[VN_SERIAL_DIAG_SMOKE_SIZE] = {
     0x00U, 0x01U, 0x09U, 0x0AU, 0x0DU, 0x17U, 0x80U, 0xFFU
@@ -1497,8 +1498,13 @@ int vn_app_run(void)
     static VnNetworkState network;
     TextUiKeyEvent event;
     int serial_configured;
+    unsigned long next_ui_refresh_tick;
+    unsigned long current_tick;
 
     textui_init();
+    TUI_SetColors(TUI_COLOR_WHITE,
+              TUI_COLOR_DARK_GREEN,
+              TUI_COLOR_BLACK);
     vn_log_start();
     vn_log_line("APP START");
     vn_config_load(VN_CONFIG_DEFAULT_FILE, &config, &status);
@@ -1527,15 +1533,27 @@ int vn_app_run(void)
     vn_app_draw_dashboard(&config, &status, serial_configured, &network);
     vn_app_clear_network_dirty(&network);
 
+    next_ui_refresh_tick = GetTick();
+
     while (1)
     {
         vn_network_poll(&config, &network);
-        if (network.dirty)
+
+        current_tick = GetTick();
+
+        if (network.dirty &&
+            (long)(current_tick - next_ui_refresh_tick) >= 0)
+        {
             vn_app_refresh_dashboard(&config, &status, serial_configured,
-                                     &network, 0);
+                                    &network, 0);
+
+            next_ui_refresh_tick =
+                current_tick + VN_APP_UI_REFRESH_TICKS;
+        }
 
         if (!textui_poll_key_event(&event))
             continue;
+
         if (event.key == TEXTUI_KEY_ESCAPE ||
             event.ch == 'Q' ||
             event.ch == 'q')
@@ -1546,18 +1564,27 @@ int vn_app_run(void)
             vn_network_select_previous_machine(&network);
             vn_app_refresh_dashboard(&config, &status, serial_configured,
                                      &network, 0);
+
+            next_ui_refresh_tick =
+                GetTick() + VN_APP_UI_REFRESH_TICKS;
         }
         else if (event.key == TEXTUI_KEY_DOWN)
         {
             vn_network_select_next_machine(&network);
             vn_app_refresh_dashboard(&config, &status, serial_configured,
                                      &network, 0);
+
+            next_ui_refresh_tick =
+                GetTick() + VN_APP_UI_REFRESH_TICKS;                                     
         }
         else if (event.key == TEXTUI_KEY_LEFT)
         {
             vn_network_select_previous_capability(&network);
             vn_app_refresh_dashboard(&config, &status, serial_configured,
                                      &network, 0);
+
+            next_ui_refresh_tick =
+                GetTick() + VN_APP_UI_REFRESH_TICKS;                                     
         }
         else if (event.key == TEXTUI_KEY_RIGHT ||
                  event.key == TEXTUI_KEY_TAB)
@@ -1565,12 +1592,18 @@ int vn_app_run(void)
             vn_network_select_next_capability(&network);
             vn_app_refresh_dashboard(&config, &status, serial_configured,
                                      &network, 0);
+
+            next_ui_refresh_tick =
+                GetTick() + VN_APP_UI_REFRESH_TICKS;                                     
         }
         else if (event.key == TEXTUI_KEY_ENTER)
         {
             vn_network_request_selected_info(&config, &network);
             vn_app_refresh_dashboard(&config, &status, serial_configured,
                                      &network, 0);
+
+            next_ui_refresh_tick =
+                GetTick() + VN_APP_UI_REFRESH_TICKS;                                     
         }
         else if (event.ch == 'C' || event.ch == 'c')
         {
@@ -1587,6 +1620,7 @@ int vn_app_run(void)
             vn_app_draw_dashboard(&config, &status, serial_configured,
                                   &network);
             vn_app_clear_network_dirty(&network);
+            
         }
         else if (event.ch == 'W' || event.ch == 'w')
         {
